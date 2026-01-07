@@ -4,31 +4,23 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
-import { Wallet, ArrowUpRight, ArrowDownRight, History } from "lucide-react";
+import { Wallet, ArrowUpRight, ArrowDownRight, History, ListFilter } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMarkets } from "@/lib/polymarket";
 import { format } from "date-fns";
 
 export default function Portfolio() {
-  const { positions, balance, trades } = useStore();
-  
-  // In a real app we'd fetch current prices to calculate P/L
-  // For now, we'll assume price hasn't moved much or use mock logic
-  // Just to show dynamic P/L we'll use a random modifier or just show current value based on avgPrice
-  
-  const { data: markets } = useQuery({ queryKey: ['markets'], queryFn: fetchMarkets });
+  const { positions, balance, trades, orders, cancelOrder } = useStore();
+  const { data: markets } = useQuery({ queryKey: ['markets'], queryFn: fetchMarkets, refetchInterval: 5000 });
 
   const totalPositionValue = positions.reduce((acc, pos) => {
-    // Attempt to find current market price
     const market = markets?.find(m => m.id === pos.marketId);
-    let currentPrice = pos.avgPrice; // Fallback
-    
+    let currentPrice = pos.avgPrice;
     if (market) {
       currentPrice = pos.outcome === 'YES' 
         ? parseFloat(market.outcomePrices[0]) 
         : parseFloat(market.outcomePrices[1]);
     }
-    
     return acc + (pos.shares * currentPrice);
   }, 0);
 
@@ -75,6 +67,60 @@ export default function Portfolio() {
               </div>
             </CardContent>
           </Card>
+        </div>
+
+        {/* Open Limit Orders */}
+        <div className="space-y-4">
+           <div className="flex items-center gap-2">
+             <ListFilter className="h-5 w-5 text-muted-foreground" />
+             <h3 className="text-xl font-semibold">Open Orders</h3>
+           </div>
+           <Card>
+             <Table>
+               <TableHeader>
+                 <TableRow>
+                   <TableHead>Type</TableHead>
+                   <TableHead>Market</TableHead>
+                   <TableHead>Outcome</TableHead>
+                   <TableHead className="text-right">Shares</TableHead>
+                   <TableHead className="text-right">Limit Price</TableHead>
+                   <TableHead className="text-right">Status</TableHead>
+                   <TableHead></TableHead>
+                 </TableRow>
+               </TableHeader>
+               <TableBody>
+                 {orders.filter(o => o.status === 'OPEN').length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                        No open orders.
+                      </TableCell>
+                    </TableRow>
+                 ) : (
+                    orders.filter(o => o.status === 'OPEN').map(order => (
+                      <TableRow key={order.id}>
+                         <TableCell>
+                           <span className={`text-xs font-bold uppercase ${order.type === 'BUY' ? 'text-green-500' : 'text-blue-500'}`}>
+                            {order.type}
+                           </span>
+                         </TableCell>
+                         <TableCell className="max-w-[200px] truncate">{order.marketTitle}</TableCell>
+                         <TableCell>{order.outcome}</TableCell>
+                         <TableCell className="text-right font-mono">{order.shares}</TableCell>
+                         <TableCell className="text-right font-mono">${order.limitPrice.toFixed(2)}</TableCell>
+                         <TableCell className="text-right">
+                           <span className="bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 px-2 py-1 rounded text-xs font-medium">OPEN</span>
+                         </TableCell>
+                         <TableCell className="text-right">
+                           <Button variant="destructive" size="sm" onClick={() => cancelOrder(order.id)} className="h-7 text-xs">
+                             Cancel
+                           </Button>
+                         </TableCell>
+                      </TableRow>
+                    ))
+                 )}
+               </TableBody>
+             </Table>
+           </Card>
         </div>
 
         {/* Positions Table */}

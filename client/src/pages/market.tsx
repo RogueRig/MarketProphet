@@ -6,24 +6,40 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { TradeDialog } from "@/components/trade-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Share2, Info, TrendingUp } from "lucide-react";
+import { ArrowLeft, Share2, Info, TrendingUp, CheckCircle2 } from "lucide-react";
 import { Link } from "wouter";
-import { useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
+import { useState, useEffect } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
+import { useStore } from "@/lib/store";
+import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 export default function MarketPage() {
   const [, params] = useRoute("/market/:id");
+  const { checkOrders, resolveMarket } = useStore();
+  
   const { data: market, isLoading } = useQuery({
     queryKey: ['market', params?.id],
     queryFn: () => fetchMarket(params?.id || ""),
-    enabled: !!params?.id
+    enabled: !!params?.id,
+    refetchInterval: 3000 // Live updates
   });
 
   const [tradeOpen, setTradeOpen] = useState(false);
   const [tradeOutcome, setTradeOutcome] = useState<"YES" | "NO">("YES");
   const { toast } = useToast();
+
+  // Effect to simulate order matching when price updates
+  useEffect(() => {
+    if (market) {
+       checkOrders(
+          market.id, 
+          parseFloat(market.outcomePrices[0]), 
+          parseFloat(market.outcomePrices[1])
+       );
+    }
+  }, [market, checkOrders]);
 
   if (isLoading) {
     return (
@@ -48,6 +64,14 @@ export default function MarketPage() {
     toast({ title: "Link copied to clipboard" });
   };
 
+  const handleResolve = (outcome: "YES" | "NO") => {
+     resolveMarket(market.id, outcome);
+     toast({
+        title: "Market Resolved",
+        description: `Market settled as ${outcome}. P/L updated.`,
+     });
+  };
+
   return (
     <Layout>
       <div className="max-w-4xl mx-auto pb-20">
@@ -67,7 +91,15 @@ export default function MarketPage() {
                </div>
              )}
              <div className="flex-1 space-y-4">
-               <h1 className="text-3xl md:text-4xl font-bold leading-tight">{market.question}</h1>
+               <div className="flex items-start justify-between">
+                  <h1 className="text-3xl md:text-4xl font-bold leading-tight">{market.question}</h1>
+                  {/* Admin Resolve Button (Simulated for Demo) */}
+                  <div className="flex gap-2">
+                     <Button variant="outline" size="sm" onClick={() => handleResolve("YES")} className="text-xs h-7">Resolve YES</Button>
+                     <Button variant="outline" size="sm" onClick={() => handleResolve("NO")} className="text-xs h-7">Resolve NO</Button>
+                  </div>
+               </div>
+               
                <div className="flex items-center gap-4 text-sm text-muted-foreground">
                  <span className="flex items-center gap-1 bg-muted/50 px-2 py-1 rounded">
                    <Info className="h-3 w-3" /> Ends {format(new Date(market.endDate), 'MMM d, yyyy')}
@@ -98,7 +130,7 @@ export default function MarketPage() {
                         className="w-full bg-green-600 hover:bg-green-700 text-white font-bold text-lg h-14 shadow-lg shadow-green-900/20"
                         onClick={() => { setTradeOutcome("YES"); setTradeOpen(true); }}
                       >
-                        Buy YES
+                        Trade YES
                       </Button>
                     </div>
                  </div>
@@ -116,7 +148,7 @@ export default function MarketPage() {
                         className="w-full bg-red-600 hover:bg-red-700 text-white font-bold text-lg h-14 shadow-lg shadow-red-900/20"
                         onClick={() => { setTradeOutcome("NO"); setTradeOpen(true); }}
                       >
-                        Buy NO
+                        Trade NO
                       </Button>
                     </div>
                  </div>
@@ -133,13 +165,39 @@ export default function MarketPage() {
              </CardContent>
           </Card>
 
-          {/* Chart Placeholder */}
+          {/* Probability History Chart */}
           <Card>
-            <CardContent className="p-6 h-[300px] flex items-center justify-center text-muted-foreground bg-muted/5">
-               <div className="text-center">
-                 <TrendingUp className="h-12 w-12 mx-auto mb-4 opacity-20" />
-                 <p>Price History Chart (Mock)</p>
-               </div>
+            <CardHeader>
+               <CardTitle className="text-base font-medium flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4" /> Probability History
+               </CardTitle>
+            </CardHeader>
+            <CardContent className="h-[300px]">
+               <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={market.history}>
+                     <defs>
+                        <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
+                           <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3}/>
+                           <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
+                        </linearGradient>
+                     </defs>
+                     <XAxis dataKey="time" hide />
+                     <YAxis domain={[0, 1]} hide />
+                     <Tooltip 
+                        contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
+                        itemStyle={{ color: 'hsl(var(--foreground))' }}
+                        formatter={(value: number) => [`${(value * 100).toFixed(0)}%`, 'Probability']}
+                     />
+                     <Area 
+                        type="monotone" 
+                        dataKey="price" 
+                        stroke="hsl(var(--primary))" 
+                        fillOpacity={1} 
+                        fill="url(#colorPrice)" 
+                        strokeWidth={2}
+                     />
+                  </AreaChart>
+               </ResponsiveContainer>
             </CardContent>
           </Card>
 
