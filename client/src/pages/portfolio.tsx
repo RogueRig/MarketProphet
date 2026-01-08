@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Link } from "wouter";
 import { Wallet, ArrowUpRight, ArrowDownRight, History, ListFilter, ShieldAlert, Bell, Target, FileText, Edit2, Check, X, Star, TrendingDown, Layers } from "lucide-react";
+import { ShareButton } from "@/components/share-button";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMarkets } from "@/lib/polymarket";
 import { format } from "date-fns";
@@ -569,10 +570,18 @@ export default function Portfolio() {
                           <TableCell className={`text-right font-mono ${ret >= 0 ? 'text-green-500' : 'text-red-500'}`}>
                             {ret >= 0 ? '+' : ''}{ret.toFixed(2)} ({retPercent.toFixed(1)}%)
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="flex gap-1 items-center">
                             <Link href={`/market/${pos.marketId}`}>
                               <Button variant="ghost" size="sm">Trade</Button>
                             </Link>
+                            <ShareButton 
+                              type="position"
+                              marketTitle={market?.question || `Market ${pos.marketId}`}
+                              outcome={pos.outcome}
+                              shares={shares.toString()}
+                              pnl={ret.toFixed(2)}
+                              marketId={pos.marketId}
+                            />
                           </TableCell>
                         </TableRow>
                       );
@@ -603,12 +612,13 @@ export default function Portfolio() {
                     <TableHead className="text-right">Price</TableHead>
                     <TableHead className="text-right">Total</TableHead>
                     <TableHead>Note</TableHead>
+                    <TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {trades.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                         No trades yet.
                       </TableCell>
                     </TableRow>
@@ -698,6 +708,17 @@ export default function Portfolio() {
                                 Add note
                               </Button>
                             )}
+                          </TableCell>
+                          <TableCell>
+                            <ShareButton 
+                              type="trade"
+                              marketTitle={trade.marketTitle}
+                              outcome={trade.outcome}
+                              price={price.toFixed(2)}
+                              shares={shares.toString()}
+                              side={trade.type}
+                              marketId={trade.marketId}
+                            />
                           </TableCell>
                         </TableRow>
                       );

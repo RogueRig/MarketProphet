@@ -9,7 +9,8 @@ import { Label } from "@/components/ui/label";
 import { TradeDialog } from "@/components/trade-dialog";
 import { OrderBook } from "@/components/order-book";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Share2, Info, Bell, Target } from "lucide-react";
+import { ArrowLeft, Info, Bell, Target } from "lucide-react";
+import { ShareButton } from "@/components/share-button";
 import { Link } from "wouter";
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -167,10 +168,6 @@ export default function MarketPage() {
   const yesPercent = Math.round(yesPrice * 100);
   const noPercent = Math.round(noPrice * 100);
 
-  const handleShare = () => {
-    navigator.clipboard.writeText(window.location.href);
-    toast({ title: "Link copied to clipboard" });
-  };
 
   return (
     <Layout>
@@ -210,9 +207,12 @@ export default function MarketPage() {
                  >
                    <Star className={`h-4 w-4 ${isWatching ? 'fill-current' : ''}`} />
                  </Button>
-                 <Button variant="ghost" size="sm" className="h-auto p-0 hover:bg-transparent text-muted-foreground hover:text-foreground" onClick={handleShare}>
-                   <Share2 className="h-4 w-4" />
-                 </Button>
+                 <ShareButton 
+                   type="prediction"
+                   marketTitle={market.question}
+                   outcome={`${yesPercent}% YES`}
+                   marketId={market.id}
+                 />
                </div>
              </div>
           </div>
