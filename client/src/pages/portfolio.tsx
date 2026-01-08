@@ -13,13 +13,19 @@ import {
   useCancelTakeProfit,
   useTradeNotes,
   useSaveTradeNote,
+  useWatchlist,
+  useRemoveFromWatchlist,
+  useTrailingStopLosses,
+  useCancelTrailingStopLoss,
+  useBracketOrders,
+  useCancelBracketOrder,
 } from "@/lib/store";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Link } from "wouter";
-import { Wallet, ArrowUpRight, ArrowDownRight, History, ListFilter, ShieldAlert, Bell, Target, FileText, Edit2, Check, X } from "lucide-react";
+import { Wallet, ArrowUpRight, ArrowDownRight, History, ListFilter, ShieldAlert, Bell, Target, FileText, Edit2, Check, X, Star, TrendingDown, Layers } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMarkets } from "@/lib/polymarket";
 import { format } from "date-fns";
@@ -34,12 +40,18 @@ export default function Portfolio() {
   const { data: priceAlerts = [] } = usePriceAlerts();
   const { data: takeProfits = [] } = useTakeProfits();
   const { data: tradeNotes = [] } = useTradeNotes();
+  const { data: watchlistItems = [] } = useWatchlist();
+  const { data: trailingStopLosses = [] } = useTrailingStopLosses();
+  const { data: bracketOrders = [] } = useBracketOrders();
   
   const cancelOrder = useCancelOrder();
   const cancelStopLoss = useCancelStopLoss();
   const cancelPriceAlert = useCancelPriceAlert();
   const cancelTakeProfit = useCancelTakeProfit();
   const saveTradeNote = useSaveTradeNote();
+  const removeFromWatchlist = useRemoveFromWatchlist();
+  const cancelTrailingStopLoss = useCancelTrailingStopLoss();
+  const cancelBracketOrder = useCancelBracketOrder();
   
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [noteText, setNoteText] = useState('');
@@ -50,6 +62,8 @@ export default function Portfolio() {
   
   const activeAlerts = priceAlerts.filter(a => a.status === 'ACTIVE');
   const activeTakeProfits = takeProfits.filter(tp => tp.status === 'ACTIVE');
+  const activeTrailingStops = trailingStopLosses.filter(t => t.status === 'ACTIVE');
+  const activeBracketOrders = bracketOrders.filter(b => b.status === 'ACTIVE');
   
   const getTradeNote = (tradeId: string) => tradeNotes.find(n => n.tradeId === tradeId);
   
@@ -330,6 +344,165 @@ export default function Portfolio() {
                              className="h-7 text-xs"
                              disabled={cancelPriceAlert.isPending}
                              data-testid={`cancel-alert-${alert.id}`}
+                           >
+                             Remove
+                           </Button>
+                         </TableCell>
+                      </TableRow>
+                    ))
+                 )}
+               </TableBody>
+             </Table>
+           </Card>
+        </div>
+
+        {/* Watchlist */}
+        <div className="space-y-4">
+           <div className="flex items-center gap-2">
+             <Star className="h-5 w-5 text-yellow-500" />
+             <h3 className="text-xl font-semibold">Watchlist ({watchlistItems.length})</h3>
+           </div>
+           <Card>
+             <Table>
+               <TableHeader>
+                 <TableRow>
+                   <TableHead>Market</TableHead>
+                   <TableHead className="text-right">Added</TableHead>
+                   <TableHead></TableHead>
+                 </TableRow>
+               </TableHeader>
+               <TableBody>
+                 {watchlistItems.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
+                        No markets in watchlist. Click the star on any market to add it.
+                      </TableCell>
+                    </TableRow>
+                 ) : (
+                    watchlistItems.map(item => (
+                      <TableRow key={item.id} data-testid={`watchlist-row-${item.id}`}>
+                         <TableCell>
+                           <Link href={`/market/${item.marketId}`} className="hover:underline text-primary">
+                             {item.marketTitle}
+                           </Link>
+                         </TableCell>
+                         <TableCell className="text-right text-xs text-muted-foreground">
+                           {format(new Date(item.timestamp), 'MMM d')}
+                         </TableCell>
+                         <TableCell className="text-right">
+                           <Button 
+                             variant="outline" 
+                             size="sm" 
+                             onClick={() => removeFromWatchlist.mutate(item.marketId)} 
+                             className="h-7 text-xs"
+                             disabled={removeFromWatchlist.isPending}
+                             data-testid={`remove-watchlist-${item.id}`}
+                           >
+                             Remove
+                           </Button>
+                         </TableCell>
+                      </TableRow>
+                    ))
+                 )}
+               </TableBody>
+             </Table>
+           </Card>
+        </div>
+
+        {/* Trailing Stop-Losses */}
+        <div className="space-y-4">
+           <div className="flex items-center gap-2">
+             <TrendingDown className="h-5 w-5 text-purple-500" />
+             <h3 className="text-xl font-semibold">Trailing Stop-Losses ({activeTrailingStops.length})</h3>
+           </div>
+           <Card>
+             <Table>
+               <TableHeader>
+                 <TableRow>
+                   <TableHead>Market</TableHead>
+                   <TableHead>Outcome</TableHead>
+                   <TableHead className="text-right">Shares</TableHead>
+                   <TableHead className="text-right">Trail %</TableHead>
+                   <TableHead className="text-right">Current Trigger</TableHead>
+                   <TableHead></TableHead>
+                 </TableRow>
+               </TableHeader>
+               <TableBody>
+                 {activeTrailingStops.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        No trailing stop-losses. Set one on a market page.
+                      </TableCell>
+                    </TableRow>
+                 ) : (
+                    activeTrailingStops.map(ts => (
+                      <TableRow key={ts.id} data-testid={`trailing-row-${ts.id}`}>
+                         <TableCell className="max-w-[200px] truncate">{ts.marketTitle}</TableCell>
+                         <TableCell>{ts.outcome}</TableCell>
+                         <TableCell className="text-right font-mono">{parseFloat(ts.shares)}</TableCell>
+                         <TableCell className="text-right font-mono text-purple-500">{parseFloat(ts.trailPercent)}%</TableCell>
+                         <TableCell className="text-right font-mono">${parseFloat(ts.currentTrigger).toFixed(2)}</TableCell>
+                         <TableCell className="text-right">
+                           <Button 
+                             variant="outline" 
+                             size="sm" 
+                             onClick={() => cancelTrailingStopLoss.mutate(ts.id)} 
+                             className="h-7 text-xs"
+                             disabled={cancelTrailingStopLoss.isPending}
+                             data-testid={`cancel-trailing-${ts.id}`}
+                           >
+                             Remove
+                           </Button>
+                         </TableCell>
+                      </TableRow>
+                    ))
+                 )}
+               </TableBody>
+             </Table>
+           </Card>
+        </div>
+
+        {/* Bracket Orders */}
+        <div className="space-y-4">
+           <div className="flex items-center gap-2">
+             <Layers className="h-5 w-5 text-indigo-500" />
+             <h3 className="text-xl font-semibold">Bracket Orders ({activeBracketOrders.length})</h3>
+           </div>
+           <Card>
+             <Table>
+               <TableHeader>
+                 <TableRow>
+                   <TableHead>Market</TableHead>
+                   <TableHead>Outcome</TableHead>
+                   <TableHead className="text-right">Shares</TableHead>
+                   <TableHead className="text-right">Take-Profit</TableHead>
+                   <TableHead className="text-right">Stop-Loss</TableHead>
+                   <TableHead></TableHead>
+                 </TableRow>
+               </TableHeader>
+               <TableBody>
+                 {activeBracketOrders.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        No bracket orders. Set one on a market page to combine TP and SL.
+                      </TableCell>
+                    </TableRow>
+                 ) : (
+                    activeBracketOrders.map(bo => (
+                      <TableRow key={bo.id} data-testid={`bracket-row-${bo.id}`}>
+                         <TableCell className="max-w-[200px] truncate">{bo.marketTitle}</TableCell>
+                         <TableCell>{bo.outcome}</TableCell>
+                         <TableCell className="text-right font-mono">{parseFloat(bo.shares)}</TableCell>
+                         <TableCell className="text-right font-mono text-green-500">${parseFloat(bo.takeProfitPrice).toFixed(2)}</TableCell>
+                         <TableCell className="text-right font-mono text-red-500">${parseFloat(bo.stopLossPrice).toFixed(2)}</TableCell>
+                         <TableCell className="text-right">
+                           <Button 
+                             variant="outline" 
+                             size="sm" 
+                             onClick={() => cancelBracketOrder.mutate(bo.id)} 
+                             className="h-7 text-xs"
+                             disabled={cancelBracketOrder.isPending}
+                             data-testid={`cancel-bracket-${bo.id}`}
                            >
                              Remove
                            </Button>

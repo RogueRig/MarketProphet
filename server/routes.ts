@@ -753,5 +753,198 @@ export async function registerRoutes(
     }
   });
 
+  // ===== WATCHLIST =====
+  
+  // Get user watchlist
+  app.get("/api/watchlist", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const items = await storage.getUserWatchlist(userId);
+      res.json(items);
+    } catch (error) {
+      console.error("Error fetching watchlist:", error);
+      res.status(500).json({ message: "Failed to fetch watchlist" });
+    }
+  });
+
+  // Check if market is in watchlist
+  app.get("/api/watchlist/:marketId/check", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { marketId } = req.params;
+      const isWatching = await storage.isInWatchlist(userId, marketId);
+      res.json({ isWatching });
+    } catch (error) {
+      console.error("Error checking watchlist:", error);
+      res.status(500).json({ message: "Failed to check watchlist" });
+    }
+  });
+
+  // Add to watchlist
+  app.post("/api/watchlist", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { marketId, marketTitle } = req.body;
+
+      // Check if already in watchlist
+      const exists = await storage.isInWatchlist(userId, marketId);
+      if (exists) {
+        return res.status(400).json({ message: "Market already in watchlist" });
+      }
+
+      const item = await storage.addToWatchlist(userId, marketId, marketTitle);
+      res.json(item);
+    } catch (error) {
+      console.error("Error adding to watchlist:", error);
+      res.status(500).json({ message: "Failed to add to watchlist" });
+    }
+  });
+
+  // Remove from watchlist
+  app.delete("/api/watchlist/:marketId", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { marketId } = req.params;
+
+      const watchlistItems = await storage.getUserWatchlist(userId);
+      const item = watchlistItems.find(w => w.marketId === marketId);
+      
+      if (!item) {
+        return res.status(404).json({ message: "Market not in watchlist" });
+      }
+
+      await storage.removeFromWatchlist(item.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error removing from watchlist:", error);
+      res.status(500).json({ message: "Failed to remove from watchlist" });
+    }
+  });
+
+  // ===== TRAILING STOP-LOSS =====
+  
+  // Get user trailing stop-losses
+  app.get("/api/orders/trailing-stoploss", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const orders = await storage.getUserTrailingStopLosses(userId);
+      res.json(orders);
+    } catch (error) {
+      console.error("Error fetching trailing stop-losses:", error);
+      res.status(500).json({ message: "Failed to fetch trailing stop-losses" });
+    }
+  });
+
+  // Create trailing stop-loss
+  app.post("/api/orders/trailing-stoploss", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { marketId, marketTitle, outcome, shares, trailPercent, currentPrice } = req.body;
+
+      // Check user has sufficient shares
+      const position = await storage.getPosition(userId, marketId, outcome);
+      if (!position || parseFloat(position.shares) < parseFloat(shares)) {
+        return res.status(400).json({ message: "Insufficient shares for trailing stop-loss" });
+      }
+
+      // Calculate initial trigger price
+      const price = parseFloat(currentPrice);
+      const trailPct = parseFloat(trailPercent) / 100;
+      const triggerPrice = price * (1 - trailPct);
+
+      const order = await storage.createTrailingStopLoss(
+        userId, marketId, marketTitle, outcome, shares, 
+        trailPercent, currentPrice, triggerPrice.toFixed(4)
+      );
+      res.json(order);
+    } catch (error) {
+      console.error("Error creating trailing stop-loss:", error);
+      res.status(500).json({ message: "Failed to create trailing stop-loss" });
+    }
+  });
+
+  // Cancel trailing stop-loss
+  app.delete("/api/orders/trailing-stoploss/:orderId", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { orderId } = req.params;
+
+      const orders = await storage.getUserTrailingStopLosses(userId);
+      const order = orders.find(o => o.id === orderId && o.status === 'ACTIVE');
+      
+      if (!order) {
+        return res.status(404).json({ message: "Trailing stop-loss not found" });
+      }
+
+      await storage.updateTrailingStopLossStatus(orderId, 'CANCELLED');
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error cancelling trailing stop-loss:", error);
+      res.status(500).json({ message: "Failed to cancel trailing stop-loss" });
+    }
+  });
+
+  // ===== BRACKET ORDERS =====
+  
+  // Get user bracket orders
+  app.get("/api/orders/bracket", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const orders = await storage.getUserBracketOrders(userId);
+      res.json(orders);
+    } catch (error) {
+      console.error("Error fetching bracket orders:", error);
+      res.status(500).json({ message: "Failed to fetch bracket orders" });
+    }
+  });
+
+  // Create bracket order
+  app.post("/api/orders/bracket", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { marketId, marketTitle, outcome, shares, takeProfitPrice, stopLossPrice } = req.body;
+
+      // Check user has sufficient shares
+      const position = await storage.getPosition(userId, marketId, outcome);
+      if (!position || parseFloat(position.shares) < parseFloat(shares)) {
+        return res.status(400).json({ message: "Insufficient shares for bracket order" });
+      }
+
+      // Validate take-profit is above stop-loss
+      if (parseFloat(takeProfitPrice) <= parseFloat(stopLossPrice)) {
+        return res.status(400).json({ message: "Take-profit price must be higher than stop-loss price" });
+      }
+
+      const order = await storage.createBracketOrder(
+        userId, marketId, marketTitle, outcome, shares, takeProfitPrice, stopLossPrice
+      );
+      res.json(order);
+    } catch (error) {
+      console.error("Error creating bracket order:", error);
+      res.status(500).json({ message: "Failed to create bracket order" });
+    }
+  });
+
+  // Cancel bracket order
+  app.delete("/api/orders/bracket/:orderId", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { orderId } = req.params;
+
+      const orders = await storage.getUserBracketOrders(userId);
+      const order = orders.find(o => o.id === orderId && o.status === 'ACTIVE');
+      
+      if (!order) {
+        return res.status(404).json({ message: "Bracket order not found" });
+      }
+
+      await storage.updateBracketOrderStatus(orderId, 'CANCELLED');
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error cancelling bracket order:", error);
+      res.status(500).json({ message: "Failed to cancel bracket order" });
+    }
+  });
+
   return httpServer;
 }

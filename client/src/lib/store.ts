@@ -1021,3 +1021,317 @@ export function canInvestInMarket(
   const currentExposure = getMarketExposure(marketId, positions, orders);
   return (currentExposure + amount) <= maxAllowed;
 }
+
+// ===== WATCHLIST =====
+
+export interface WatchlistItem {
+  id: string;
+  userId: string;
+  marketId: string;
+  marketTitle: string;
+  timestamp: string;
+}
+
+export function useWatchlist() {
+  const { toast } = useToast();
+  
+  return useQuery<WatchlistItem[]>({
+    queryKey: ['/api/watchlist'],
+    queryFn: async () => {
+      const response = await fetch('/api/watchlist', { credentials: 'include' });
+      if (!response.ok) throw new Error(`${response.status}: ${response.statusText}`);
+      return response.json();
+    },
+    retry: (failureCount, error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+        return false;
+      }
+      return failureCount < 3;
+    },
+  });
+}
+
+export function useIsInWatchlist(marketId: string) {
+  return useQuery<{ isWatching: boolean }>({
+    queryKey: ['/api/watchlist', marketId, 'check'],
+    queryFn: async () => {
+      const response = await fetch(`/api/watchlist/${marketId}/check`, { credentials: 'include' });
+      if (!response.ok) return { isWatching: false };
+      return response.json();
+    },
+    enabled: !!marketId,
+  });
+}
+
+export function useAddToWatchlist() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async ({ marketId, marketTitle }: { marketId: string; marketTitle: string }) => {
+      const response = await fetch('/api/watchlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ marketId, marketTitle }),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to add to watchlist');
+      }
+      return response.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/watchlist'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/watchlist', variables.marketId, 'check'] });
+      toast({ title: 'Added to Watchlist' });
+    },
+    onError: (error: Error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+      } else {
+        toast({ title: 'Failed', description: error.message, variant: 'destructive' });
+      }
+    },
+  });
+}
+
+export function useRemoveFromWatchlist() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async (marketId: string) => {
+      const response = await fetch(`/api/watchlist/${marketId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      
+      if (!response.ok) throw new Error('Failed to remove from watchlist');
+      return response.json();
+    },
+    onSuccess: (_, marketId) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/watchlist'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/watchlist', marketId, 'check'] });
+      toast({ title: 'Removed from Watchlist' });
+    },
+    onError: (error: Error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+      }
+    },
+  });
+}
+
+// ===== TRAILING STOP-LOSS =====
+
+export interface TrailingStopLoss {
+  id: string;
+  userId: string;
+  marketId: string;
+  marketTitle: string;
+  outcome: string;
+  shares: string;
+  trailPercent: string;
+  highWaterMark: string;
+  currentTrigger: string;
+  status: string;
+  timestamp: string;
+}
+
+export function useTrailingStopLosses() {
+  const { toast } = useToast();
+  
+  return useQuery<TrailingStopLoss[]>({
+    queryKey: ['/api/orders/trailing-stoploss'],
+    queryFn: async () => {
+      const response = await fetch('/api/orders/trailing-stoploss', { credentials: 'include' });
+      if (!response.ok) throw new Error(`${response.status}: ${response.statusText}`);
+      return response.json();
+    },
+    retry: (failureCount, error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+        return false;
+      }
+      return failureCount < 3;
+    },
+  });
+}
+
+export function useCreateTrailingStopLoss() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async (data: {
+      marketId: string;
+      marketTitle: string;
+      outcome: string;
+      shares: string;
+      trailPercent: string;
+      currentPrice: string;
+    }) => {
+      const response = await fetch('/api/orders/trailing-stoploss', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(data),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to create trailing stop-loss');
+      }
+      return response.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/orders/trailing-stoploss'] });
+      toast({
+        title: 'Trailing Stop-Loss Set',
+        description: `Will trail ${variables.trailPercent}% below the highest price`,
+        className: 'bg-purple-500/10 border-purple-500/20',
+      });
+    },
+    onError: (error: Error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+      } else {
+        toast({ title: 'Order Failed', description: error.message, variant: 'destructive' });
+      }
+    },
+  });
+}
+
+export function useCancelTrailingStopLoss() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async (orderId: string) => {
+      const response = await fetch(`/api/orders/trailing-stoploss/${orderId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      
+      if (!response.ok) throw new Error('Failed to cancel trailing stop-loss');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/orders/trailing-stoploss'] });
+      toast({ title: 'Trailing Stop-Loss Removed' });
+    },
+    onError: (error: Error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+      }
+    },
+  });
+}
+
+// ===== BRACKET ORDERS =====
+
+export interface BracketOrder {
+  id: string;
+  userId: string;
+  marketId: string;
+  marketTitle: string;
+  outcome: string;
+  shares: string;
+  takeProfitPrice: string;
+  stopLossPrice: string;
+  status: string;
+  timestamp: string;
+}
+
+export function useBracketOrders() {
+  const { toast } = useToast();
+  
+  return useQuery<BracketOrder[]>({
+    queryKey: ['/api/orders/bracket'],
+    queryFn: async () => {
+      const response = await fetch('/api/orders/bracket', { credentials: 'include' });
+      if (!response.ok) throw new Error(`${response.status}: ${response.statusText}`);
+      return response.json();
+    },
+    retry: (failureCount, error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+        return false;
+      }
+      return failureCount < 3;
+    },
+  });
+}
+
+export function useCreateBracketOrder() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async (data: {
+      marketId: string;
+      marketTitle: string;
+      outcome: string;
+      shares: string;
+      takeProfitPrice: string;
+      stopLossPrice: string;
+    }) => {
+      const response = await fetch('/api/orders/bracket', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(data),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to create bracket order');
+      }
+      return response.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/orders/bracket'] });
+      toast({
+        title: 'Bracket Order Set',
+        description: `TP: $${parseFloat(variables.takeProfitPrice).toFixed(2)} / SL: $${parseFloat(variables.stopLossPrice).toFixed(2)}`,
+        className: 'bg-indigo-500/10 border-indigo-500/20',
+      });
+    },
+    onError: (error: Error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+      } else {
+        toast({ title: 'Order Failed', description: error.message, variant: 'destructive' });
+      }
+    },
+  });
+}
+
+export function useCancelBracketOrder() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async (orderId: string) => {
+      const response = await fetch(`/api/orders/bracket/${orderId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      
+      if (!response.ok) throw new Error('Failed to cancel bracket order');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/orders/bracket'] });
+      toast({ title: 'Bracket Order Removed' });
+    },
+    onError: (error: Error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+      }
+    },
+  });
+}

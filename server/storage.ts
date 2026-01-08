@@ -10,6 +10,9 @@ import {
   priceAlerts,
   takeProfitOrders,
   tradeNotes,
+  watchlist,
+  trailingStopLoss,
+  bracketOrders,
   type User,
   type Position,
   type Trade,
@@ -19,6 +22,9 @@ import {
   type PriceAlert,
   type TakeProfitOrder,
   type TradeNote,
+  type WatchlistItem,
+  type TrailingStopLoss,
+  type BracketOrder,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -74,6 +80,25 @@ export interface IStorage {
   createTradeNote(userId: string, tradeId: string, note: string): Promise<TradeNote>;
   updateTradeNote(noteId: string, note: string): Promise<void>;
   deleteTradeNote(noteId: string): Promise<void>;
+  
+  // Watchlist operations
+  getUserWatchlist(userId: string): Promise<WatchlistItem[]>;
+  addToWatchlist(userId: string, marketId: string, marketTitle: string): Promise<WatchlistItem>;
+  removeFromWatchlist(watchlistId: string): Promise<void>;
+  isInWatchlist(userId: string, marketId: string): Promise<boolean>;
+  
+  // Trailing stop-loss operations
+  getUserTrailingStopLosses(userId: string): Promise<TrailingStopLoss[]>;
+  getActiveTrailingStopLossesForMarket(marketId: string): Promise<TrailingStopLoss[]>;
+  createTrailingStopLoss(userId: string, marketId: string, marketTitle: string, outcome: string, shares: string, trailPercent: string, highWaterMark: string, currentTrigger: string): Promise<TrailingStopLoss>;
+  updateTrailingStopLossStatus(orderId: string, status: string): Promise<void>;
+  updateTrailingStopLossTrigger(orderId: string, highWaterMark: string, currentTrigger: string): Promise<void>;
+  
+  // Bracket order operations
+  getUserBracketOrders(userId: string): Promise<BracketOrder[]>;
+  getActiveBracketOrdersForMarket(marketId: string): Promise<BracketOrder[]>;
+  createBracketOrder(userId: string, marketId: string, marketTitle: string, outcome: string, shares: string, takeProfitPrice: string, stopLossPrice: string): Promise<BracketOrder>;
+  updateBracketOrderStatus(orderId: string, status: string): Promise<void>;
 }
 
 export class DbStorage implements IStorage {
@@ -325,6 +350,101 @@ export class DbStorage implements IStorage {
 
   async deleteTradeNote(noteId: string): Promise<void> {
     await db.delete(tradeNotes).where(eq(tradeNotes.id, noteId));
+  }
+
+  // Watchlist operations
+  async getUserWatchlist(userId: string): Promise<WatchlistItem[]> {
+    return await db.select().from(watchlist)
+      .where(eq(watchlist.userId, userId))
+      .orderBy(desc(watchlist.timestamp));
+  }
+
+  async addToWatchlist(userId: string, marketId: string, marketTitle: string): Promise<WatchlistItem> {
+    const [item] = await db.insert(watchlist).values({
+      userId,
+      marketId,
+      marketTitle
+    }).returning();
+    return item;
+  }
+
+  async removeFromWatchlist(watchlistId: string): Promise<void> {
+    await db.delete(watchlist).where(eq(watchlist.id, watchlistId));
+  }
+
+  async isInWatchlist(userId: string, marketId: string): Promise<boolean> {
+    const [item] = await db.select().from(watchlist)
+      .where(and(eq(watchlist.userId, userId), eq(watchlist.marketId, marketId)));
+    return !!item;
+  }
+
+  // Trailing stop-loss operations
+  async getUserTrailingStopLosses(userId: string): Promise<TrailingStopLoss[]> {
+    return await db.select().from(trailingStopLoss)
+      .where(eq(trailingStopLoss.userId, userId))
+      .orderBy(desc(trailingStopLoss.timestamp));
+  }
+
+  async getActiveTrailingStopLossesForMarket(marketId: string): Promise<TrailingStopLoss[]> {
+    return await db.select().from(trailingStopLoss)
+      .where(and(
+        eq(trailingStopLoss.marketId, marketId),
+        eq(trailingStopLoss.status, 'ACTIVE')
+      ));
+  }
+
+  async createTrailingStopLoss(userId: string, marketId: string, marketTitle: string, outcome: string, shares: string, trailPercent: string, highWaterMark: string, currentTrigger: string): Promise<TrailingStopLoss> {
+    const [order] = await db.insert(trailingStopLoss).values({
+      userId,
+      marketId,
+      marketTitle,
+      outcome,
+      shares,
+      trailPercent,
+      highWaterMark,
+      currentTrigger
+    }).returning();
+    return order;
+  }
+
+  async updateTrailingStopLossStatus(orderId: string, status: string): Promise<void> {
+    await db.update(trailingStopLoss).set({ status }).where(eq(trailingStopLoss.id, orderId));
+  }
+
+  async updateTrailingStopLossTrigger(orderId: string, highWaterMark: string, currentTrigger: string): Promise<void> {
+    await db.update(trailingStopLoss).set({ highWaterMark, currentTrigger }).where(eq(trailingStopLoss.id, orderId));
+  }
+
+  // Bracket order operations
+  async getUserBracketOrders(userId: string): Promise<BracketOrder[]> {
+    return await db.select().from(bracketOrders)
+      .where(eq(bracketOrders.userId, userId))
+      .orderBy(desc(bracketOrders.timestamp));
+  }
+
+  async getActiveBracketOrdersForMarket(marketId: string): Promise<BracketOrder[]> {
+    return await db.select().from(bracketOrders)
+      .where(and(
+        eq(bracketOrders.marketId, marketId),
+        eq(bracketOrders.status, 'ACTIVE')
+      ));
+  }
+
+  async createBracketOrder(userId: string, marketId: string, marketTitle: string, outcome: string, shares: string, takeProfitPrice: string, stopLossPrice: string): Promise<BracketOrder> {
+    const [order] = await db.insert(bracketOrders).values({
+      userId,
+      marketId,
+      marketTitle,
+      outcome,
+      shares,
+      takeProfitPrice,
+      stopLossPrice
+    }).returning();
+    return order;
+  }
+
+  async updateBracketOrderStatus(orderId: string, status: string): Promise<void> {
+    await db.update(bracketOrders).set({ status }).where(eq(bracketOrders.id, orderId));
   }
 }
 

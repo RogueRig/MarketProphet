@@ -16,8 +16,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { usePositions, useCreatePriceAlert, useCreateTakeProfit } from "@/lib/store";
+import { 
+  usePositions, 
+  useCreatePriceAlert, 
+  useCreateTakeProfit,
+  useIsInWatchlist,
+  useAddToWatchlist,
+  useRemoveFromWatchlist,
+  useCreateTrailingStopLoss,
+  useCreateBracketOrder,
+} from "@/lib/store";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Star, TrendingDown, Layers } from "lucide-react";
 
 export default function MarketPage() {
   const [, params] = useRoute("/market/:id");
@@ -33,6 +43,14 @@ export default function MarketPage() {
   const { data: positions = [] } = usePositions();
   const createPriceAlert = useCreatePriceAlert();
   const createTakeProfit = useCreateTakeProfit();
+  const createTrailingStopLoss = useCreateTrailingStopLoss();
+  const createBracketOrder = useCreateBracketOrder();
+  
+  // Watchlist
+  const { data: watchlistStatus } = useIsInWatchlist(params?.id || "");
+  const addToWatchlist = useAddToWatchlist();
+  const removeFromWatchlist = useRemoveFromWatchlist();
+  const isWatching = watchlistStatus?.isWatching || false;
 
   const [tradeOpen, setTradeOpen] = useState(false);
   const [tradeOutcome, setTradeOutcome] = useState<"YES" | "NO">("YES");
@@ -46,6 +64,17 @@ export default function MarketPage() {
   const [tpOutcome, setTpOutcome] = useState<string>("YES");
   const [tpPrice, setTpPrice] = useState("");
   const [tpShares, setTpShares] = useState("");
+  
+  // Trailing stop-loss state
+  const [trailOutcome, setTrailOutcome] = useState<string>("YES");
+  const [trailPercent, setTrailPercent] = useState("");
+  const [trailShares, setTrailShares] = useState("");
+  
+  // Bracket order state
+  const [bracketOutcome, setBracketOutcome] = useState<string>("YES");
+  const [bracketShares, setBracketShares] = useState("");
+  const [bracketTP, setBracketTP] = useState("");
+  const [bracketSL, setBracketSL] = useState("");
   
   // Get user positions for this market
   const marketPositions = positions.filter(p => p.marketId === params?.id);
@@ -77,6 +106,47 @@ export default function MarketPage() {
     });
     setTpPrice("");
     setTpShares("");
+  };
+  
+  const handleToggleWatchlist = () => {
+    if (!market) return;
+    if (isWatching) {
+      removeFromWatchlist.mutate(market.id);
+    } else {
+      addToWatchlist.mutate({ marketId: market.id, marketTitle: market.question });
+    }
+  };
+  
+  const handleCreateTrailingStopLoss = () => {
+    if (!market || !trailPercent || !trailShares) return;
+    const currentPrice = trailOutcome === 'YES' 
+      ? market.outcomePrices[0] 
+      : market.outcomePrices[1];
+    createTrailingStopLoss.mutate({
+      marketId: market.id,
+      marketTitle: market.question,
+      outcome: trailOutcome,
+      shares: trailShares,
+      trailPercent: trailPercent,
+      currentPrice: currentPrice
+    });
+    setTrailPercent("");
+    setTrailShares("");
+  };
+  
+  const handleCreateBracketOrder = () => {
+    if (!market || !bracketShares || !bracketTP || !bracketSL) return;
+    createBracketOrder.mutate({
+      marketId: market.id,
+      marketTitle: market.question,
+      outcome: bracketOutcome,
+      shares: bracketShares,
+      takeProfitPrice: bracketTP,
+      stopLossPrice: bracketSL
+    });
+    setBracketShares("");
+    setBracketTP("");
+    setBracketSL("");
   };
 
   if (isLoading) {
@@ -130,6 +200,16 @@ export default function MarketPage() {
                    <Info className="h-3 w-3" /> Ends {format(new Date(market.endDate), 'MMM d, yyyy')}
                  </span>
                  <span className="font-mono text-xs">Vol: ${(market.volume / 1000000).toFixed(2)}M</span>
+                 <Button 
+                   variant="ghost" 
+                   size="sm" 
+                   className={`h-auto p-1 hover:bg-transparent ${isWatching ? 'text-yellow-500' : 'text-muted-foreground hover:text-foreground'}`}
+                   onClick={handleToggleWatchlist}
+                   disabled={addToWatchlist.isPending || removeFromWatchlist.isPending}
+                   data-testid="watchlist-toggle"
+                 >
+                   <Star className={`h-4 w-4 ${isWatching ? 'fill-current' : ''}`} />
+                 </Button>
                  <Button variant="ghost" size="sm" className="h-auto p-0 hover:bg-transparent text-muted-foreground hover:text-foreground" onClick={handleShare}>
                    <Share2 className="h-4 w-4" />
                  </Button>
@@ -321,6 +401,165 @@ export default function MarketPage() {
                 ) : (
                   <div className="text-center py-4 text-muted-foreground text-sm">
                     You need to own shares in this market to set a take-profit order.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            
+            {/* Trailing Stop-Loss */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-medium flex items-center gap-2">
+                  <TrendingDown className="h-4 w-4 text-purple-500" />
+                  Trailing Stop-Loss
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {(hasYesPosition || hasNoPosition) ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <Label className="text-xs">Position</Label>
+                        <Select value={trailOutcome} onValueChange={setTrailOutcome}>
+                          <SelectTrigger className="h-9" data-testid="trail-outcome-select">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {hasYesPosition && <SelectItem value="YES">YES ({yesPosition?.shares} shares)</SelectItem>}
+                            {hasNoPosition && <SelectItem value="NO">NO ({noPosition?.shares} shares)</SelectItem>}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-xs">Shares</Label>
+                        <Input
+                          type="number"
+                          step="1"
+                          min="1"
+                          placeholder="Shares"
+                          value={trailShares}
+                          onChange={(e) => setTrailShares(e.target.value)}
+                          className="h-9"
+                          data-testid="trail-shares-input"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs">Trail Percentage (%)</Label>
+                      <Input
+                        type="number"
+                        step="1"
+                        min="1"
+                        max="50"
+                        placeholder="e.g., 10"
+                        value={trailPercent}
+                        onChange={(e) => setTrailPercent(e.target.value)}
+                        className="h-9"
+                        data-testid="trail-percent-input"
+                      />
+                      <p className="text-xs text-muted-foreground">Stop moves up as price rises, stays {trailPercent || '?'}% below peak</p>
+                    </div>
+                    <Button 
+                      className="w-full bg-purple-600 hover:bg-purple-700" 
+                      size="sm"
+                      onClick={handleCreateTrailingStopLoss}
+                      disabled={!trailPercent || !trailShares || createTrailingStopLoss.isPending}
+                      data-testid="create-trail-button"
+                    >
+                      <TrendingDown className="h-3 w-3 mr-2" />
+                      Set Trailing Stop
+                    </Button>
+                  </>
+                ) : (
+                  <div className="text-center py-4 text-muted-foreground text-sm">
+                    You need to own shares to set a trailing stop-loss.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            
+            {/* Bracket Order */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-medium flex items-center gap-2">
+                  <Layers className="h-4 w-4 text-indigo-500" />
+                  Bracket Order
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {(hasYesPosition || hasNoPosition) ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <Label className="text-xs">Position</Label>
+                        <Select value={bracketOutcome} onValueChange={setBracketOutcome}>
+                          <SelectTrigger className="h-9" data-testid="bracket-outcome-select">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {hasYesPosition && <SelectItem value="YES">YES ({yesPosition?.shares} shares)</SelectItem>}
+                            {hasNoPosition && <SelectItem value="NO">NO ({noPosition?.shares} shares)</SelectItem>}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-xs">Shares</Label>
+                        <Input
+                          type="number"
+                          step="1"
+                          min="1"
+                          placeholder="Shares"
+                          value={bracketShares}
+                          onChange={(e) => setBracketShares(e.target.value)}
+                          className="h-9"
+                          data-testid="bracket-shares-input"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <Label className="text-xs text-green-600">Take-Profit ($)</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0.01"
+                          max="0.99"
+                          placeholder="e.g., 0.80"
+                          value={bracketTP}
+                          onChange={(e) => setBracketTP(e.target.value)}
+                          className="h-9"
+                          data-testid="bracket-tp-input"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-xs text-red-600">Stop-Loss ($)</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0.01"
+                          max="0.99"
+                          placeholder="e.g., 0.40"
+                          value={bracketSL}
+                          onChange={(e) => setBracketSL(e.target.value)}
+                          className="h-9"
+                          data-testid="bracket-sl-input"
+                        />
+                      </div>
+                    </div>
+                    <Button 
+                      className="w-full bg-indigo-600 hover:bg-indigo-700" 
+                      size="sm"
+                      onClick={handleCreateBracketOrder}
+                      disabled={!bracketShares || !bracketTP || !bracketSL || createBracketOrder.isPending}
+                      data-testid="create-bracket-button"
+                    >
+                      <Layers className="h-3 w-3 mr-2" />
+                      Set Bracket Order
+                    </Button>
+                  </>
+                ) : (
+                  <div className="text-center py-4 text-muted-foreground text-sm">
+                    You need to own shares to set a bracket order.
                   </div>
                 )}
               </CardContent>
