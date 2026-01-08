@@ -4,7 +4,7 @@ import { fetchMarkets } from "@/lib/polymarket";
 import { MarketCard } from "@/components/market-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Search, Filter, RefreshCw, X, TrendingUp, Clock, DollarSign, BarChart3 } from "lucide-react";
+import { Search, Filter, RefreshCw, X, TrendingUp, Clock, DollarSign, BarChart3, Star } from "lucide-react";
 import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -12,6 +12,9 @@ import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
+import { useWatchlist } from "@/lib/store";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Link } from "wouter";
 
 export default function Dashboard() {
   const { data: markets, isLoading, refetch, isRefetching } = useQuery({
@@ -19,6 +22,8 @@ export default function Dashboard() {
     queryFn: fetchMarkets,
     refetchInterval: 5000
   });
+  
+  const { data: watchlist = [] } = useWatchlist();
 
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
@@ -60,6 +65,9 @@ export default function Dashboard() {
         const price = parseFloat(m.outcomePrices[0]);
         if (price < 0.35 || price > 0.65) return false;
       }
+      if (quickFilter === "favorites") {
+        if (!watchlist.some(w => w.marketId === m.id)) return false;
+      }
       
       return matchesSearch && matchesCategory && matchesPriceRange && matchesVolume;
     }).sort((a, b) => {
@@ -71,7 +79,7 @@ export default function Dashboard() {
       if (sort === "price-asc") return parseFloat(a.outcomePrices[0]) - parseFloat(b.outcomePrices[0]);
       return 0;
     });
-  }, [markets, search, category, sort, priceRange, minVolume, quickFilter]);
+  }, [markets, search, category, sort, priceRange, minVolume, quickFilter, watchlist]);
 
   const activeFiltersCount = [
     category !== "all",
@@ -172,6 +180,16 @@ export default function Dashboard() {
             >
               <BarChart3 className="h-3 w-3 mr-1" />
               50/50 Markets
+            </Button>
+            <Button
+              variant={quickFilter === "favorites" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setQuickFilter(quickFilter === "favorites" ? null : "favorites")}
+              className="h-8"
+              data-testid="filter-favorites"
+            >
+              <Star className={`h-3 w-3 mr-1 ${quickFilter === "favorites" ? "fill-current" : ""}`} />
+              Favorites ({watchlist.length})
             </Button>
           </div>
 
@@ -314,6 +332,56 @@ export default function Dashboard() {
           )}
         </div>
 
+        {/* Favorites Section */}
+        {!isLoading && watchlist.length > 0 && quickFilter !== "favorites" && (
+          <Card className="border-yellow-500/30 bg-yellow-500/5">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-medium flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
+                  Your Favorites
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setQuickFilter("favorites")}
+                  className="text-xs"
+                  data-testid="view-all-favorites"
+                >
+                  View All ({watchlist.length})
+                </Button>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {markets?.filter(m => watchlist.some(w => w.marketId === m.id)).slice(0, 3).map((market) => (
+                  <Link key={market.id} href={`/market/${market.id}`}>
+                    <div className="p-3 rounded-lg border bg-card hover:border-primary/50 transition-colors cursor-pointer">
+                      <div className="flex items-center gap-3">
+                        {market.icon && (
+                          <img src={market.icon} alt="" className="w-8 h-8 object-contain rounded-full bg-muted/20 p-1" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{market.question}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-xs font-mono text-green-500">
+                              YES {Math.round(parseFloat(market.outcomePrices[0]) * 100)}%
+                            </span>
+                            <span className="text-xs text-muted-foreground">|</span>
+                            <span className="text-xs font-mono text-red-500">
+                              NO {Math.round(parseFloat(market.outcomePrices[1]) * 100)}%
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {!isLoading && (
           <div className="flex items-center justify-between text-sm text-muted-foreground">
             <span>{filteredMarkets.length} market{filteredMarkets.length !== 1 ? 's' : ''} found</span>
@@ -329,7 +397,11 @@ export default function Dashboard() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredMarkets.map((market) => (
-              <MarketCard key={market.id} market={market} />
+              <MarketCard 
+                key={market.id} 
+                market={market}
+                watchlist={watchlist}
+              />
             ))}
             {filteredMarkets.length === 0 && (
               <div className="col-span-full text-center py-20 text-muted-foreground border border-dashed rounded-lg">
