@@ -5,8 +5,9 @@ import { fetchMarket } from "@/lib/polymarket";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { TradeDialog } from "@/components/trade-dialog";
+import { OrderBook } from "@/components/order-book";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Share2, Info, TrendingUp, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Share2, Info, TrendingUp } from "lucide-react";
 import { Link } from "wouter";
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,28 +19,39 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "rec
 export default function MarketPage() {
   const [, params] = useRoute("/market/:id");
   const { checkOrders, resolveMarket } = useStore();
+  const { toast } = useToast();
   
   const { data: market, isLoading } = useQuery({
     queryKey: ['market', params?.id],
     queryFn: () => fetchMarket(params?.id || ""),
     enabled: !!params?.id,
-    refetchInterval: 3000 // Live updates
+    refetchInterval: 3000
   });
 
   const [tradeOpen, setTradeOpen] = useState(false);
   const [tradeOutcome, setTradeOutcome] = useState<"YES" | "NO">("YES");
-  const { toast } = useToast();
 
-  // Effect to simulate order matching when price updates
+  // Check orders and show notifications when price updates
   useEffect(() => {
     if (market) {
-       checkOrders(
+       const fills = checkOrders(
           market.id, 
           parseFloat(market.outcomePrices[0]), 
           parseFloat(market.outcomePrices[1])
        );
+       
+       // Show toast for each fill
+       fills.forEach(fill => {
+          toast({
+            title: fill.type === 'LIMIT_FILL' ? '🔔 Limit Order Filled!' : '⚠️ Stop-Loss Triggered!',
+            description: `${fill.orderType} ${fill.shares} ${fill.outcome} @ $${fill.price.toFixed(2)}`,
+            className: fill.type === 'LIMIT_FILL' 
+              ? 'bg-green-500/10 border-green-500/20' 
+              : 'bg-orange-500/10 border-orange-500/20',
+          });
+       });
     }
-  }, [market, checkOrders]);
+  }, [market, checkOrders, toast]);
 
   if (isLoading) {
     return (
@@ -93,7 +105,6 @@ export default function MarketPage() {
              <div className="flex-1 space-y-4">
                <div className="flex items-start justify-between">
                   <h1 className="text-3xl md:text-4xl font-bold leading-tight">{market.question}</h1>
-                  {/* Admin Resolve Button (Simulated for Demo) */}
                   <div className="flex gap-2">
                      <Button variant="outline" size="sm" onClick={() => handleResolve("YES")} className="text-xs h-7">Resolve YES</Button>
                      <Button variant="outline" size="sm" onClick={() => handleResolve("NO")} className="text-xs h-7">Resolve NO</Button>
@@ -116,7 +127,6 @@ export default function MarketPage() {
           <Card className="border-border/60 shadow-lg overflow-hidden">
              <CardContent className="p-0">
                <div className="flex flex-col md:flex-row h-full">
-                 
                  {/* YES Option */}
                  <div className="flex-1 p-6 md:p-8 bg-linear-to-b from-green-500/5 to-transparent hover:from-green-500/10 transition-colors border-b md:border-b-0 md:border-r border-border/40 relative group">
                     <div className="absolute top-4 right-4 text-green-600/20 group-hover:text-green-600/40 font-black text-6xl select-none transition-colors">YES</div>
@@ -152,7 +162,6 @@ export default function MarketPage() {
                       </Button>
                     </div>
                  </div>
-
                </div>
                
                <div className="p-6 bg-muted/20 border-t border-border/40">
@@ -164,6 +173,9 @@ export default function MarketPage() {
                </div>
              </CardContent>
           </Card>
+
+          {/* Order Book */}
+          <OrderBook marketId={market.id} />
 
           {/* Probability History Chart */}
           <Card>
@@ -200,7 +212,6 @@ export default function MarketPage() {
                </ResponsiveContainer>
             </CardContent>
           </Card>
-
         </div>
       </div>
 

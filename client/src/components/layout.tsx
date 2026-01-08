@@ -5,19 +5,21 @@ import {
   PieChart, 
   LogOut, 
   TrendingUp, 
-  Wallet,
   Menu,
-  X
+  Settings
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { NotificationsDropdown } from "./notifications-dropdown";
+import { SettingsDialog } from "./settings-dialog";
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { balance, logout, email } = useStore();
   const [open, setOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const navItems = [
     { href: "/", label: "Markets", icon: LayoutDashboard },
@@ -72,9 +74,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <span className="text-xs text-muted-foreground">Logged in as</span>
               <span className="text-sm font-medium truncate max-w-[140px]" title={email || ''}>{email}</span>
            </div>
-           <Button variant="ghost" size="icon" onClick={() => logout()} title="Logout">
-            <LogOut className="h-4 w-4 text-muted-foreground hover:text-destructive transition-colors" />
-           </Button>
+           <div className="flex items-center gap-1">
+              <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)} title="Settings">
+                <Settings className="h-4 w-4 text-muted-foreground hover:text-foreground transition-colors" />
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => logout()} title="Logout">
+                <LogOut className="h-4 w-4 text-muted-foreground hover:text-destructive transition-colors" />
+              </Button>
+           </div>
         </div>
       </div>
     </div>
@@ -93,16 +100,24 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <TrendingUp className="h-6 w-6 text-primary" />
           <span className="text-gradient">POLYTRADE</span>
         </h1>
-        <Sheet open={open} onOpenChange={setOpen}>
-          <SheetTrigger asChild>
-            <Button variant="ghost" size="icon">
-              <Menu className="h-5 w-5" />
-            </Button>
-          </SheetTrigger>
-          <SheetContent side="left" className="p-0 w-72">
-            <NavContent />
-          </SheetContent>
-        </Sheet>
+        <div className="flex items-center gap-2">
+          <NotificationsDropdown />
+          <Sheet open={open} onOpenChange={setOpen}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon">
+                <Menu className="h-5 w-5" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="p-0 w-72">
+              <NavContent />
+            </SheetContent>
+          </Sheet>
+        </div>
+      </div>
+
+      {/* Desktop notification bell */}
+      <div className="hidden md:flex fixed top-4 right-4 z-30">
+        <NotificationsDropdown />
       </div>
 
       {/* Main Content */}
@@ -111,6 +126,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
           {children}
         </div>
       </main>
+
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   );
 }

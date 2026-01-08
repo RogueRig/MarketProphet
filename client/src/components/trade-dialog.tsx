@@ -1,12 +1,12 @@
-import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { useState, useEffect } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useStore } from "@/lib/store";
 import { useToast } from "@/hooks/use-toast";
 import { PolymarketEvent } from "@/lib/polymarket";
-import { Loader2, TrendingUp, TrendingDown, DollarSign } from "lucide-react";
+import { Loader2, AlertTriangle } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 
@@ -21,28 +21,52 @@ export function TradeDialog({ market, open, onOpenChange, defaultOutcome = "YES"
   const [outcome, setOutcome] = useState<"YES" | "NO">(defaultOutcome);
   const [shares, setShares] = useState<string>("10");
   const [limitPrice, setLimitPrice] = useState<string>("");
-  const [isLimitOrder, setIsLimitOrder] = useState(false);
+  const [stopLossPrice, setStopLossPrice] = useState<string>("");
+  const [orderMode, setOrderMode] = useState<"market" | "limit" | "stop-loss">("market");
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  const { buyShares, sellShares, placeLimitOrder, balance } = useStore();
+  const { buyShares, sellShares, placeLimitOrder, placeStopLoss, balance, positions, settings, getMarketExposure } = useStore();
   const { toast } = useToast();
 
+  // Reset outcome when dialog opens with new default
+  useEffect(() => {
+    setOutcome(defaultOutcome);
+  }, [defaultOutcome, open]);
+
   const currentPrice = outcome === "YES" ? parseFloat(market.outcomePrices[0]) : parseFloat(market.outcomePrices[1]);
-  const orderPrice = isLimitOrder && limitPrice ? parseFloat(limitPrice) : currentPrice;
+  const orderPrice = orderMode === "limit" && limitPrice ? parseFloat(limitPrice) : currentPrice;
   const numShares = parseFloat(shares) || 0;
   const totalCost = numShares * orderPrice;
+  
+  // Check allocation limit
+  const currentExposure = getMarketExposure(market.id);
+  const maxAllowed = (settings.maxAllocationPerMarket / 100) * 10000;
+  const wouldExceedLimit = (currentExposure + totalCost) > maxAllowed;
+  const remainingAllocation = Math.max(0, maxAllowed - currentExposure);
+
+  // Get current position for stop-loss
+  const currentPosition = positions.find(p => p.marketId === market.id && p.outcome === outcome);
   
   const handleTrade = async (type: "BUY" | "SELL") => {
     setIsSubmitting(true);
     try {
       await new Promise(resolve => setTimeout(resolve, 600));
       
-      if (isLimitOrder) {
+      if (orderMode === "limit") {
         if (!orderPrice || orderPrice <= 0 || orderPrice >= 1) throw new Error("Invalid limit price");
         placeLimitOrder(market.id, market.question, outcome, type, numShares, orderPrice);
         toast({
           title: "Limit Order Placed",
           description: `${type} limit order for ${numShares} ${outcome} shares at $${orderPrice.toFixed(2)}`,
+        });
+      } else if (orderMode === "stop-loss") {
+        const triggerPrice = parseFloat(stopLossPrice);
+        if (!triggerPrice || triggerPrice <= 0 || triggerPrice >= 1) throw new Error("Invalid stop-loss price");
+        placeStopLoss(market.id, market.question, outcome, numShares, triggerPrice);
+        toast({
+          title: "Stop-Loss Order Placed",
+          description: `Will sell ${numShares} ${outcome} shares if price drops to $${triggerPrice.toFixed(2)}`,
+          className: "bg-orange-500/10 border-orange-500/20",
         });
       } else {
         if (type === "BUY") {
@@ -74,7 +98,7 @@ export function TradeDialog({ market, open, onOpenChange, defaultOutcome = "YES"
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px] gap-6">
+      <DialogContent className="sm:max-w-[450px] gap-6">
         <DialogHeader>
           <DialogTitle className="text-xl leading-relaxed">{market.question}</DialogTitle>
           <DialogDescription>
@@ -82,16 +106,41 @@ export function TradeDialog({ market, open, onOpenChange, defaultOutcome = "YES"
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex items-center space-x-2 pb-2">
-           <Switch id="limit-mode" checked={isLimitOrder} onCheckedChange={setIsLimitOrder} />
-           <Label htmlFor="limit-mode">Limit Order Mode</Label>
+        {/* Order Mode Selector */}
+        <div className="flex gap-2 p-1 bg-muted/50 rounded-lg">
+          <Button 
+            variant={orderMode === "market" ? "default" : "ghost"} 
+            size="sm" 
+            className="flex-1"
+            onClick={() => setOrderMode("market")}
+          >
+            Market
+          </Button>
+          <Button 
+            variant={orderMode === "limit" ? "default" : "ghost"} 
+            size="sm" 
+            className="flex-1"
+            onClick={() => setOrderMode("limit")}
+          >
+            Limit
+          </Button>
+          <Button 
+            variant={orderMode === "stop-loss" ? "default" : "ghost"} 
+            size="sm" 
+            className="flex-1"
+            onClick={() => setOrderMode("stop-loss")}
+          >
+            Stop-Loss
+          </Button>
         </div>
 
         <Tabs defaultValue="buy" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-4">
-            <TabsTrigger value="buy">Buy</TabsTrigger>
-            <TabsTrigger value="sell">Sell</TabsTrigger>
-          </TabsList>
+          {orderMode !== "stop-loss" && (
+            <TabsList className="grid w-full grid-cols-2 mb-4">
+              <TabsTrigger value="buy">Buy</TabsTrigger>
+              <TabsTrigger value="sell">Sell</TabsTrigger>
+            </TabsList>
+          )}
 
           <div className="space-y-4 py-2">
             <div className="flex gap-2 mb-4">
@@ -125,9 +174,14 @@ export function TradeDialog({ market, open, onOpenChange, defaultOutcome = "YES"
                   #
                 </div>
               </div>
+              {orderMode === "stop-loss" && currentPosition && (
+                <p className="text-xs text-muted-foreground">
+                  You have {currentPosition.shares} {outcome} shares to protect
+                </p>
+              )}
             </div>
 
-            {isLimitOrder && (
+            {orderMode === "limit" && (
               <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
                 <label className="text-sm font-medium text-muted-foreground">Limit Price ($)</label>
                 <div className="relative">
@@ -148,39 +202,92 @@ export function TradeDialog({ market, open, onOpenChange, defaultOutcome = "YES"
               </div>
             )}
 
-            <div className="flex justify-between items-center bg-muted/30 p-3 rounded-lg border border-border/50">
-              <span className="text-sm text-muted-foreground">Est. Total</span>
-              <span className="font-mono font-bold text-lg">${totalCost.toFixed(2)}</span>
-            </div>
+            {orderMode === "stop-loss" && (
+              <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
+                <label className="text-sm font-medium text-muted-foreground">Trigger Price (Sell if drops to)</label>
+                <div className="relative">
+                  <Input 
+                    type="number" 
+                    value={stopLossPrice} 
+                    onChange={(e) => setStopLossPrice(e.target.value)}
+                    className="pl-8 font-mono text-lg"
+                    placeholder={(currentPrice * 0.8).toFixed(2)}
+                    step="0.01"
+                    min="0.01"
+                    max="0.99"
+                  />
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                    $
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Automatically sells your shares if the price falls to this level
+                </p>
+              </div>
+            )}
 
-             <div className="flex justify-between items-center px-1">
-              <span className="text-xs text-muted-foreground">Your Balance</span>
-              <span className="font-mono text-xs">${balance.toFixed(2)}</span>
-            </div>
+            {orderMode !== "stop-loss" && (
+              <>
+                <div className="flex justify-between items-center bg-muted/30 p-3 rounded-lg border border-border/50">
+                  <span className="text-sm text-muted-foreground">Est. Total</span>
+                  <span className="font-mono font-bold text-lg">${totalCost.toFixed(2)}</span>
+                </div>
+
+                {wouldExceedLimit && (
+                  <div className="flex items-center gap-2 bg-destructive/10 text-destructive p-3 rounded-lg border border-destructive/20 text-sm">
+                    <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                    <span>
+                      Exceeds {settings.maxAllocationPerMarket}% allocation limit. 
+                      Remaining: ${remainingAllocation.toFixed(2)}
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex justify-between items-center px-1 text-xs text-muted-foreground">
+                  <span>Balance: ${balance.toFixed(2)}</span>
+                  <span>Market exposure: ${currentExposure.toFixed(2)} / ${maxAllowed.toFixed(0)}</span>
+                </div>
+              </>
+            )}
           </div>
 
-          <TabsContent value="buy" className="mt-4">
-            <Button 
-              className="w-full font-bold" 
-              size="lg" 
-              onClick={() => handleTrade("BUY")} 
-              disabled={isSubmitting || (totalCost > balance && !isLimitOrder) || numShares <= 0}
-            >
-              {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : isLimitOrder ? "Place Limit Buy" : "Buy Market"}
-            </Button>
-          </TabsContent>
-          
-          <TabsContent value="sell" className="mt-4">
-            <Button 
-              variant="secondary" 
-              className="w-full font-bold text-red-500 hover:text-red-600 dark:hover:text-red-400" 
-              size="lg" 
-              onClick={() => handleTrade("SELL")}
-              disabled={isSubmitting || numShares <= 0}
-            >
-              {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : isLimitOrder ? "Place Limit Sell" : "Sell Market"}
-            </Button>
-          </TabsContent>
+          {orderMode === "stop-loss" ? (
+            <div className="mt-4">
+              <Button 
+                className="w-full font-bold bg-orange-600 hover:bg-orange-700" 
+                size="lg" 
+                onClick={() => handleTrade("SELL")} 
+                disabled={isSubmitting || numShares <= 0 || !stopLossPrice || !currentPosition || currentPosition.shares < numShares}
+              >
+                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Set Stop-Loss"}
+              </Button>
+            </div>
+          ) : (
+            <>
+              <TabsContent value="buy" className="mt-4">
+                <Button 
+                  className="w-full font-bold" 
+                  size="lg" 
+                  onClick={() => handleTrade("BUY")} 
+                  disabled={isSubmitting || totalCost > balance || numShares <= 0 || wouldExceedLimit}
+                >
+                  {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : orderMode === "limit" ? "Place Limit Buy" : "Buy Market"}
+                </Button>
+              </TabsContent>
+              
+              <TabsContent value="sell" className="mt-4">
+                <Button 
+                  variant="secondary" 
+                  className="w-full font-bold text-red-500 hover:text-red-600 dark:hover:text-red-400" 
+                  size="lg" 
+                  onClick={() => handleTrade("SELL")}
+                  disabled={isSubmitting || numShares <= 0}
+                >
+                  {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : orderMode === "limit" ? "Place Limit Sell" : "Sell Market"}
+                </Button>
+              </TabsContent>
+            </>
+          )}
         </Tabs>
       </DialogContent>
     </Dialog>

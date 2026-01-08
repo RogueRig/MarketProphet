@@ -4,13 +4,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
-import { Wallet, ArrowUpRight, ArrowDownRight, History, ListFilter } from "lucide-react";
+import { Wallet, ArrowUpRight, ArrowDownRight, History, ListFilter, ShieldAlert } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMarkets } from "@/lib/polymarket";
 import { format } from "date-fns";
 
 export default function Portfolio() {
-  const { positions, balance, trades, orders, cancelOrder } = useStore();
+  const { positions, balance, trades, orders, stopLossOrders, cancelOrder, cancelStopLoss, settings } = useStore();
   const { data: markets } = useQuery({ queryKey: ['markets'], queryFn: fetchMarkets, refetchInterval: 5000 });
 
   const totalPositionValue = positions.reduce((acc, pos) => {
@@ -28,6 +28,9 @@ export default function Portfolio() {
   const initialBalance = 10000;
   const totalPnL = totalPortfolioValue - initialBalance;
   const totalPnLPercent = (totalPnL / initialBalance) * 100;
+
+  const openOrders = orders.filter(o => o.status === 'OPEN');
+  const activeStopLosses = stopLossOrders.filter(o => o.status === 'ACTIVE');
 
   return (
     <Layout>
@@ -73,7 +76,7 @@ export default function Portfolio() {
         <div className="space-y-4">
            <div className="flex items-center gap-2">
              <ListFilter className="h-5 w-5 text-muted-foreground" />
-             <h3 className="text-xl font-semibold">Open Orders</h3>
+             <h3 className="text-xl font-semibold">Open Orders ({openOrders.length})</h3>
            </div>
            <Card>
              <Table>
@@ -84,19 +87,18 @@ export default function Portfolio() {
                    <TableHead>Outcome</TableHead>
                    <TableHead className="text-right">Shares</TableHead>
                    <TableHead className="text-right">Limit Price</TableHead>
-                   <TableHead className="text-right">Status</TableHead>
                    <TableHead></TableHead>
                  </TableRow>
                </TableHeader>
                <TableBody>
-                 {orders.filter(o => o.status === 'OPEN').length === 0 ? (
+                 {openOrders.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                        No open orders.
+                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        No open limit orders.
                       </TableCell>
                     </TableRow>
                  ) : (
-                    orders.filter(o => o.status === 'OPEN').map(order => (
+                    openOrders.map(order => (
                       <TableRow key={order.id}>
                          <TableCell>
                            <span className={`text-xs font-bold uppercase ${order.type === 'BUY' ? 'text-green-500' : 'text-blue-500'}`}>
@@ -108,11 +110,52 @@ export default function Portfolio() {
                          <TableCell className="text-right font-mono">{order.shares}</TableCell>
                          <TableCell className="text-right font-mono">${order.limitPrice.toFixed(2)}</TableCell>
                          <TableCell className="text-right">
-                           <span className="bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 px-2 py-1 rounded text-xs font-medium">OPEN</span>
-                         </TableCell>
-                         <TableCell className="text-right">
                            <Button variant="destructive" size="sm" onClick={() => cancelOrder(order.id)} className="h-7 text-xs">
                              Cancel
+                           </Button>
+                         </TableCell>
+                      </TableRow>
+                    ))
+                 )}
+               </TableBody>
+             </Table>
+           </Card>
+        </div>
+
+        {/* Active Stop-Losses */}
+        <div className="space-y-4">
+           <div className="flex items-center gap-2">
+             <ShieldAlert className="h-5 w-5 text-orange-500" />
+             <h3 className="text-xl font-semibold">Active Stop-Losses ({activeStopLosses.length})</h3>
+           </div>
+           <Card>
+             <Table>
+               <TableHeader>
+                 <TableRow>
+                   <TableHead>Market</TableHead>
+                   <TableHead>Outcome</TableHead>
+                   <TableHead className="text-right">Shares</TableHead>
+                   <TableHead className="text-right">Trigger Price</TableHead>
+                   <TableHead></TableHead>
+                 </TableRow>
+               </TableHeader>
+               <TableBody>
+                 {activeStopLosses.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                        No active stop-loss orders.
+                      </TableCell>
+                    </TableRow>
+                 ) : (
+                    activeStopLosses.map(sl => (
+                      <TableRow key={sl.id}>
+                         <TableCell className="max-w-[200px] truncate">{sl.marketTitle}</TableCell>
+                         <TableCell>{sl.outcome}</TableCell>
+                         <TableCell className="text-right font-mono">{sl.shares}</TableCell>
+                         <TableCell className="text-right font-mono text-orange-500">${sl.triggerPrice.toFixed(2)}</TableCell>
+                         <TableCell className="text-right">
+                           <Button variant="outline" size="sm" onClick={() => cancelStopLoss(sl.id)} className="h-7 text-xs">
+                             Remove
                            </Button>
                          </TableCell>
                       </TableRow>
@@ -156,7 +199,7 @@ export default function Portfolio() {
                       
                       const marketValue = pos.shares * currentPrice;
                       const ret = (currentPrice - pos.avgPrice) * pos.shares;
-                      const retPercent = ((currentPrice - pos.avgPrice) / pos.avgPrice) * 100;
+                      const retPercent = pos.avgPrice > 0 ? ((currentPrice - pos.avgPrice) / pos.avgPrice) * 100 : 0;
                       
                       return (
                         <TableRow key={`${pos.marketId}-${pos.outcome}`}>
@@ -216,7 +259,7 @@ export default function Portfolio() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    trades.map((trade) => (
+                    trades.slice(0, 20).map((trade) => (
                       <TableRow key={trade.id}>
                         <TableCell className="text-muted-foreground text-xs">
                           {format(trade.timestamp, 'MMM d, HH:mm')}
