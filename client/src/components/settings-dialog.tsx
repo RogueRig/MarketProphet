@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useStore } from "@/lib/store";
+import { useState, useEffect } from "react";
+import { useUserProfile, useUpdateSettings } from "@/lib/store";
 import {
   Dialog,
   DialogContent,
@@ -18,12 +18,23 @@ interface SettingsDialogProps {
 }
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
-  const { settings, updateSettings } = useStore();
-  const [maxAllocation, setMaxAllocation] = useState(settings.maxAllocationPerMarket);
+  const { data: profile } = useUserProfile();
+  const updateSettings = useUpdateSettings();
+  const [maxAllocation, setMaxAllocation] = useState(25);
+
+  // Update local state when profile loads
+  useEffect(() => {
+    if (profile) {
+      setMaxAllocation(profile.maxAllocationPerMarket);
+    }
+  }, [profile]);
 
   const handleSave = () => {
-    updateSettings({ maxAllocationPerMarket: maxAllocation });
-    onOpenChange(false);
+    updateSettings.mutate(maxAllocation, {
+      onSuccess: () => {
+        onOpenChange(false);
+      },
+    });
   };
 
   return (
@@ -79,8 +90,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSave}>
-            Save Settings
+          <Button onClick={handleSave} disabled={updateSettings.isPending}>
+            {updateSettings.isPending ? 'Saving...' : 'Save Settings'}
           </Button>
         </div>
       </DialogContent>

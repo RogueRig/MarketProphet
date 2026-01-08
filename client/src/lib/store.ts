@@ -1,11 +1,15 @@
-import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@/hooks/use-auth';
+import { isUnauthorizedError, redirectToLogin } from './auth-utils';
+import { useToast } from '@/hooks/use-toast';
 
+// Type definitions
 export interface Position {
+  id: string;
   marketId: string;
   outcome: 'YES' | 'NO';
-  shares: number;
-  avgPrice: number;
+  shares: string;
+  avgPrice: string;
 }
 
 export interface Trade {
@@ -14,9 +18,9 @@ export interface Trade {
   marketTitle: string;
   outcome: 'YES' | 'NO';
   type: 'BUY' | 'SELL';
-  shares: number;
-  price: number;
-  timestamp: number;
+  shares: string;
+  price: string;
+  timestamp: string;
 }
 
 export interface LimitOrder {
@@ -25,9 +29,9 @@ export interface LimitOrder {
   marketTitle: string;
   outcome: 'YES' | 'NO';
   type: 'BUY' | 'SELL';
-  shares: number;
-  limitPrice: number;
-  timestamp: number;
+  shares: string;
+  limitPrice: string;
+  timestamp: string;
   status: 'OPEN' | 'FILLED' | 'CANCELLED';
 }
 
@@ -36,9 +40,9 @@ export interface StopLossOrder {
   marketId: string;
   marketTitle: string;
   outcome: 'YES' | 'NO';
-  shares: number;
-  triggerPrice: number;
-  timestamp: number;
+  shares: string;
+  triggerPrice: string;
+  timestamp: string;
   status: 'ACTIVE' | 'TRIGGERED' | 'CANCELLED';
 }
 
@@ -48,474 +52,552 @@ export interface OrderFillNotification {
   marketTitle: string;
   outcome: 'YES' | 'NO';
   orderType: 'BUY' | 'SELL';
-  shares: number;
-  price: number;
-  timestamp: number;
+  shares: string;
+  price: string;
+  timestamp: string;
   read: boolean;
 }
 
-export interface Settings {
-  maxAllocationPerMarket: number; // 0-100 percentage
+export interface UserProfile {
+  balance: string;
+  maxAllocationPerMarket: number;
 }
 
-interface UserState {
-  isAuthenticated: boolean;
-  email: string | null;
-  balance: number;
-  positions: Position[];
-  trades: Trade[];
-  orders: LimitOrder[];
-  stopLossOrders: StopLossOrder[];
-  notifications: OrderFillNotification[];
-  settings: Settings;
-  login: (email: string) => void;
-  logout: () => void;
-  buyShares: (marketId: string, marketTitle: string, outcome: 'YES' | 'NO', shares: number, price: number) => void;
-  sellShares: (marketId: string, marketTitle: string, outcome: 'YES' | 'NO', shares: number, price: number) => void;
-  placeLimitOrder: (marketId: string, marketTitle: string, outcome: 'YES' | 'NO', type: 'BUY' | 'SELL', shares: number, limitPrice: number) => void;
-  placeStopLoss: (marketId: string, marketTitle: string, outcome: 'YES' | 'NO', shares: number, triggerPrice: number) => void;
-  cancelOrder: (orderId: string) => void;
-  cancelStopLoss: (orderId: string) => void;
-  checkOrders: (marketId: string, currentPriceYes: number, currentPriceNo: number) => OrderFillNotification[];
-  resolveMarket: (marketId: string, winningOutcome: 'YES' | 'NO') => void;
-  markNotificationRead: (id: string) => void;
-  clearNotifications: () => void;
-  updateSettings: (settings: Partial<Settings>) => void;
-  getMarketExposure: (marketId: string) => number;
-  canInvestInMarket: (marketId: string, amount: number) => boolean;
+// API functions
+async function fetchUserProfile(): Promise<UserProfile> {
+  const response = await fetch('/api/user/profile', { credentials: 'include' });
+  if (!response.ok) throw new Error(`${response.status}: ${response.statusText}`);
+  return response.json();
 }
 
-export const useStore = create<UserState>()(
-  persist(
-    (set, get) => ({
-      isAuthenticated: false,
-      email: null,
-      balance: 10000,
-      positions: [],
-      trades: [],
-      orders: [],
-      stopLossOrders: [],
-      notifications: [],
-      settings: {
-        maxAllocationPerMarket: 25, // Default 25% max per market
-      },
-      
-      login: (email) => set({ isAuthenticated: true, email }),
-      logout: () => set({ 
-        isAuthenticated: false, 
-        email: null, 
-        positions: [], 
-        trades: [], 
-        orders: [], 
-        stopLossOrders: [],
-        notifications: [],
-        balance: 10000 
-      }),
-      
-      getMarketExposure: (marketId) => {
-        const { positions, orders } = get();
-        let exposure = 0;
-        
-        // Current position value
-        positions.filter(p => p.marketId === marketId).forEach(p => {
-          exposure += p.shares * p.avgPrice;
-        });
-        
-        // Open limit buy orders
-        orders.filter(o => o.marketId === marketId && o.status === 'OPEN' && o.type === 'BUY').forEach(o => {
-          exposure += o.shares * o.limitPrice;
-        });
-        
-        return exposure;
-      },
-      
-      canInvestInMarket: (marketId, amount) => {
-        const { settings, balance, getMarketExposure } = get();
-        const totalPortfolio = 10000; // Using initial balance as reference
-        const maxAllowed = (settings.maxAllocationPerMarket / 100) * totalPortfolio;
-        const currentExposure = getMarketExposure(marketId);
-        return (currentExposure + amount) <= maxAllowed;
-      },
-      
-      updateSettings: (newSettings) => {
-        set((state) => ({
-          settings: { ...state.settings, ...newSettings }
-        }));
-      },
-      
-      buyShares: (marketId, marketTitle, outcome, shares, price) => {
-        const { balance, positions, trades, canInvestInMarket } = get();
-        const cost = shares * price;
-        
-        if (balance < cost) {
-          throw new Error("Insufficient funds");
-        }
-        
-        if (!canInvestInMarket(marketId, cost)) {
-          throw new Error("Exceeds max allocation limit for this market");
-        }
+async function fetchPositions(): Promise<Position[]> {
+  const response = await fetch('/api/positions', { credentials: 'include' });
+  if (!response.ok) throw new Error(`${response.status}: ${response.statusText}`);
+  return response.json();
+}
 
-        const newTrade: Trade = {
-          id: Math.random().toString(36).substring(7),
-          marketId,
-          marketTitle,
-          outcome,
-          type: 'BUY',
-          shares,
-          price,
-          timestamp: Date.now(),
-        };
+async function fetchTrades(): Promise<Trade[]> {
+  const response = await fetch('/api/trades', { credentials: 'include' });
+  if (!response.ok) throw new Error(`${response.status}: ${response.statusText}`);
+  return response.json();
+}
 
-        const existingPositionIndex = positions.findIndex(p => p.marketId === marketId && p.outcome === outcome);
-        let newPositions = [...positions];
+async function fetchOrders(): Promise<LimitOrder[]> {
+  const response = await fetch('/api/orders/limit', { credentials: 'include' });
+  if (!response.ok) throw new Error(`${response.status}: ${response.statusText}`);
+  return response.json();
+}
 
-        if (existingPositionIndex >= 0) {
-          const pos = newPositions[existingPositionIndex];
-          const totalShares = pos.shares + shares;
-          const totalCost = (pos.shares * pos.avgPrice) + cost;
-          newPositions[existingPositionIndex] = {
-            ...pos,
-            shares: totalShares,
-            avgPrice: totalCost / totalShares
-          };
-        } else {
-          newPositions.push({
-            marketId,
-            outcome,
-            shares,
-            avgPrice: price
-          });
-        }
+async function fetchStopLosses(): Promise<StopLossOrder[]> {
+  const response = await fetch('/api/orders/stoploss', { credentials: 'include' });
+  if (!response.ok) throw new Error(`${response.status}: ${response.statusText}`);
+  return response.json();
+}
 
-        set({
-          balance: balance - cost,
-          positions: newPositions,
-          trades: [newTrade, ...trades]
-        });
-      },
+async function fetchNotifications(): Promise<OrderFillNotification[]> {
+  const response = await fetch('/api/notifications', { credentials: 'include' });
+  if (!response.ok) throw new Error(`${response.status}: ${response.statusText}`);
+  return response.json();
+}
 
-      sellShares: (marketId, marketTitle, outcome, shares, price) => {
-        const { balance, positions, trades } = get();
-        const existingPositionIndex = positions.findIndex(p => p.marketId === marketId && p.outcome === outcome);
-
-        if (existingPositionIndex === -1 || positions[existingPositionIndex].shares < shares) {
-           throw new Error("Insufficient shares");
-        }
-
-        const revenue = shares * price;
-        const newTrade: Trade = {
-          id: Math.random().toString(36).substring(7),
-          marketId,
-          marketTitle,
-          outcome,
-          type: 'SELL',
-          shares,
-          price,
-          timestamp: Date.now(),
-        };
-
-        let newPositions = [...positions];
-        const pos = newPositions[existingPositionIndex];
-        
-        if (pos.shares === shares) {
-          newPositions.splice(existingPositionIndex, 1);
-        } else {
-          newPositions[existingPositionIndex] = {
-            ...pos,
-            shares: pos.shares - shares
-          };
-        }
-
-        set({
-          balance: balance + revenue,
-          positions: newPositions,
-          trades: [newTrade, ...trades]
-        });
-      },
-
-      placeLimitOrder: (marketId, marketTitle, outcome, type, shares, limitPrice) => {
-         const { balance, orders, canInvestInMarket } = get();
-         
-         if (type === 'BUY') {
-            const cost = shares * limitPrice;
-            if (balance < cost) throw new Error("Insufficient funds for limit order");
-            if (!canInvestInMarket(marketId, cost)) throw new Error("Exceeds max allocation limit");
-            set({ balance: balance - cost }); 
-         } else {
-            const { positions } = get();
-            const pos = positions.find(p => p.marketId === marketId && p.outcome === outcome);
-            if (!pos || pos.shares < shares) throw new Error("Insufficient shares for limit order");
-            
-            const existingPositionIndex = positions.findIndex(p => p.marketId === marketId && p.outcome === outcome);
-            let newPositions = [...positions];
-            if (pos.shares === shares) {
-               newPositions.splice(existingPositionIndex, 1);
-            } else {
-               newPositions[existingPositionIndex] = { ...pos, shares: pos.shares - shares };
-            }
-            set({ positions: newPositions });
-         }
-
-         const newOrder: LimitOrder = {
-           id: Math.random().toString(36).substring(7),
-           marketId,
-           marketTitle,
-           outcome,
-           type,
-           shares,
-           limitPrice,
-           timestamp: Date.now(),
-           status: 'OPEN'
-         };
-
-         set({ orders: [newOrder, ...orders] });
-      },
-
-      placeStopLoss: (marketId, marketTitle, outcome, shares, triggerPrice) => {
-         const { positions, stopLossOrders } = get();
-         const pos = positions.find(p => p.marketId === marketId && p.outcome === outcome);
-         
-         if (!pos || pos.shares < shares) {
-            throw new Error("Insufficient shares for stop-loss order");
-         }
-
-         const newStopLoss: StopLossOrder = {
-           id: Math.random().toString(36).substring(7),
-           marketId,
-           marketTitle,
-           outcome,
-           shares,
-           triggerPrice,
-           timestamp: Date.now(),
-           status: 'ACTIVE'
-         };
-
-         set({ stopLossOrders: [newStopLoss, ...stopLossOrders] });
-      },
-
-      cancelOrder: (orderId) => {
-         const { orders, balance, positions } = get();
-         const order = orders.find(o => o.id === orderId);
-         if (!order || order.status !== 'OPEN') return;
-
-         if (order.type === 'BUY') {
-            set({ balance: balance + (order.shares * order.limitPrice) });
-         } else {
-            const existingPositionIndex = positions.findIndex(p => p.marketId === order.marketId && p.outcome === order.outcome);
-            let newPositions = [...positions];
-            if (existingPositionIndex >= 0) {
-               newPositions[existingPositionIndex] = {
-                  ...newPositions[existingPositionIndex],
-                  shares: newPositions[existingPositionIndex].shares + order.shares
-               };
-            } else {
-               newPositions.push({
-                  marketId: order.marketId,
-                  outcome: order.outcome,
-                  shares: order.shares,
-                  avgPrice: 0
-               });
-            }
-            set({ positions: newPositions });
-         }
-
-         set({
-            orders: orders.map(o => o.id === orderId ? { ...o, status: 'CANCELLED' } : o)
-         });
-      },
-
-      cancelStopLoss: (orderId) => {
-         const { stopLossOrders } = get();
-         set({
-            stopLossOrders: stopLossOrders.map(o => 
-               o.id === orderId ? { ...o, status: 'CANCELLED' } : o
-            )
-         });
-      },
-
-      checkOrders: (marketId, currentPriceYes, currentPriceNo) => {
-         const { orders, stopLossOrders, positions, trades, balance, notifications } = get();
-         const openOrders = orders.filter(o => o.marketId === marketId && o.status === 'OPEN');
-         const activeStopLosses = stopLossOrders.filter(o => o.marketId === marketId && o.status === 'ACTIVE');
-         
-         let newOrders = [...orders];
-         let newStopLosses = [...stopLossOrders];
-         let newPositions = [...positions];
-         let newTrades = [...trades];
-         let newNotifications = [...notifications];
-         let newBalance = balance;
-         let somethingChanged = false;
-         const fillNotifications: OrderFillNotification[] = [];
-
-         // Check limit orders
-         openOrders.forEach(order => {
-            const currentPrice = order.outcome === 'YES' ? currentPriceYes : currentPriceNo;
-            let shouldFill = false;
-
-            if (order.type === 'BUY' && currentPrice <= order.limitPrice) {
-               shouldFill = true;
-               const existingPositionIndex = newPositions.findIndex(p => p.marketId === marketId && p.outcome === order.outcome);
-               if (existingPositionIndex >= 0) {
-                  const pos = newPositions[existingPositionIndex];
-                  const totalShares = pos.shares + order.shares;
-                  const totalCost = (pos.shares * pos.avgPrice) + (order.shares * order.limitPrice);
-                  newPositions[existingPositionIndex] = { ...pos, shares: totalShares, avgPrice: totalCost / totalShares };
-               } else {
-                  newPositions.push({ marketId, outcome: order.outcome, shares: order.shares, avgPrice: order.limitPrice });
-               }
-            } else if (order.type === 'SELL' && currentPrice >= order.limitPrice) {
-               shouldFill = true;
-               newBalance += order.shares * order.limitPrice;
-            }
-
-            if (shouldFill) {
-               somethingChanged = true;
-               const orderIndex = newOrders.findIndex(o => o.id === order.id);
-               newOrders[orderIndex] = { ...order, status: 'FILLED' };
-               
-               const notification: OrderFillNotification = {
-                  id: Math.random().toString(36).substring(7),
-                  type: 'LIMIT_FILL',
-                  marketTitle: order.marketTitle,
-                  outcome: order.outcome,
-                  orderType: order.type,
-                  shares: order.shares,
-                  price: order.limitPrice,
-                  timestamp: Date.now(),
-                  read: false
-               };
-               fillNotifications.push(notification);
-               newNotifications.unshift(notification);
-               
-               newTrades.unshift({
-                  id: Math.random().toString(36).substring(7),
-                  marketId,
-                  marketTitle: order.marketTitle,
-                  outcome: order.outcome,
-                  type: order.type,
-                  shares: order.shares,
-                  price: order.limitPrice,
-                  timestamp: Date.now()
-               });
-            }
-         });
-
-         // Check stop-loss orders
-         activeStopLosses.forEach(stopLoss => {
-            const currentPrice = stopLoss.outcome === 'YES' ? currentPriceYes : currentPriceNo;
-            
-            if (currentPrice <= stopLoss.triggerPrice) {
-               somethingChanged = true;
-               
-               // Find position and sell
-               const posIndex = newPositions.findIndex(p => p.marketId === marketId && p.outcome === stopLoss.outcome);
-               if (posIndex >= 0) {
-                  const pos = newPositions[posIndex];
-                  const sharesToSell = Math.min(stopLoss.shares, pos.shares);
-                  
-                  if (sharesToSell > 0) {
-                     newBalance += sharesToSell * currentPrice;
-                     
-                     if (pos.shares <= sharesToSell) {
-                        newPositions.splice(posIndex, 1);
-                     } else {
-                        newPositions[posIndex] = { ...pos, shares: pos.shares - sharesToSell };
-                     }
-                     
-                     const notification: OrderFillNotification = {
-                        id: Math.random().toString(36).substring(7),
-                        type: 'STOP_LOSS',
-                        marketTitle: stopLoss.marketTitle,
-                        outcome: stopLoss.outcome,
-                        orderType: 'SELL',
-                        shares: sharesToSell,
-                        price: currentPrice,
-                        timestamp: Date.now(),
-                        read: false
-                     };
-                     fillNotifications.push(notification);
-                     newNotifications.unshift(notification);
-                     
-                     newTrades.unshift({
-                        id: Math.random().toString(36).substring(7),
-                        marketId,
-                        marketTitle: stopLoss.marketTitle,
-                        outcome: stopLoss.outcome,
-                        type: 'SELL',
-                        shares: sharesToSell,
-                        price: currentPrice,
-                        timestamp: Date.now()
-                     });
-                  }
-               }
-               
-               const slIndex = newStopLosses.findIndex(o => o.id === stopLoss.id);
-               newStopLosses[slIndex] = { ...stopLoss, status: 'TRIGGERED' };
-            }
-         });
-
-         if (somethingChanged) {
-            set({ 
-               orders: newOrders, 
-               stopLossOrders: newStopLosses,
-               positions: newPositions, 
-               trades: newTrades, 
-               balance: newBalance,
-               notifications: newNotifications
-            });
-         }
-         
-         return fillNotifications;
-      },
-
-      resolveMarket: (marketId, winningOutcome) => {
-         const { positions, balance, orders, stopLossOrders } = get();
-         const relevantPositions = positions.filter(p => p.marketId === marketId);
-         
-         let payout = 0;
-         relevantPositions.forEach(pos => {
-            if (pos.outcome === winningOutcome) {
-               payout += pos.shares * 1.0;
-            }
-         });
-
-         const newPositions = positions.filter(p => p.marketId !== marketId);
-         
-         // Cancel related orders
-         const updatedOrders = orders.map(o => 
-            o.marketId === marketId && o.status === 'OPEN' ? { ...o, status: 'CANCELLED' as const } : o
-         );
-         const updatedStopLosses = stopLossOrders.map(o => 
-            o.marketId === marketId && o.status === 'ACTIVE' ? { ...o, status: 'CANCELLED' as const } : o
-         );
-         
-         // Refund cancelled buy orders
-         let refund = 0;
-         orders.filter(o => o.marketId === marketId && o.status === 'OPEN' && o.type === 'BUY').forEach(o => {
-            refund += o.shares * o.limitPrice;
-         });
-         
-         set({
-            balance: balance + payout + refund,
-            positions: newPositions,
-            orders: updatedOrders,
-            stopLossOrders: updatedStopLosses
-         });
-      },
-      
-      markNotificationRead: (id) => {
-         const { notifications } = get();
-         set({
-            notifications: notifications.map(n => n.id === id ? { ...n, read: true } : n)
-         });
-      },
-      
-      clearNotifications: () => {
-         set({ notifications: [] });
+// Query hooks
+export function useUserProfile() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  
+  return useQuery<UserProfile>({
+    queryKey: ['/api/user/profile'],
+    queryFn: fetchUserProfile,
+    enabled: !!user,
+    retry: (failureCount, error) => {
+      if (isUnauthorizedError(error as Error)) {
+        redirectToLogin(toast);
+        return false;
       }
-    }),
-    {
-      name: 'polytrade-storage',
-    }
-  )
-);
+      return failureCount < 3;
+    },
+  });
+}
+
+export function usePositions() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  
+  return useQuery<Position[]>({
+    queryKey: ['/api/positions'],
+    queryFn: fetchPositions,
+    enabled: !!user,
+    retry: (failureCount, error) => {
+      if (isUnauthorizedError(error as Error)) {
+        redirectToLogin(toast);
+        return false;
+      }
+      return failureCount < 3;
+    },
+  });
+}
+
+export function useTrades() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  
+  return useQuery<Trade[]>({
+    queryKey: ['/api/trades'],
+    queryFn: fetchTrades,
+    enabled: !!user,
+    retry: (failureCount, error) => {
+      if (isUnauthorizedError(error as Error)) {
+        redirectToLogin(toast);
+        return false;
+      }
+      return failureCount < 3;
+    },
+  });
+}
+
+export function useOrders() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  
+  return useQuery<LimitOrder[]>({
+    queryKey: ['/api/orders/limit'],
+    queryFn: fetchOrders,
+    enabled: !!user,
+    retry: (failureCount, error) => {
+      if (isUnauthorizedError(error as Error)) {
+        redirectToLogin(toast);
+        return false;
+      }
+      return failureCount < 3;
+    },
+  });
+}
+
+export function useStopLosses() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  
+  return useQuery<StopLossOrder[]>({
+    queryKey: ['/api/orders/stoploss'],
+    queryFn: fetchStopLosses,
+    enabled: !!user,
+    retry: (failureCount, error) => {
+      if (isUnauthorizedError(error as Error)) {
+        redirectToLogin(toast);
+        return false;
+      }
+      return failureCount < 3;
+    },
+  });
+}
+
+export function useNotifications() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  
+  return useQuery<OrderFillNotification[]>({
+    queryKey: ['/api/notifications'],
+    queryFn: fetchNotifications,
+    enabled: !!user,
+    refetchInterval: 5000, // Refetch every 5 seconds for new notifications
+    retry: (failureCount, error) => {
+      if (isUnauthorizedError(error as Error)) {
+        redirectToLogin(toast);
+        return false;
+      }
+      return failureCount < 3;
+    },
+  });
+}
+
+// Mutation hooks
+export function useMarketTrade() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async (data: {
+      marketId: string;
+      marketTitle: string;
+      outcome: 'YES' | 'NO';
+      type: 'BUY' | 'SELL';
+      shares: number;
+      price: number;
+    }) => {
+      const response = await fetch('/api/trade/market', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          marketId: data.marketId,
+          marketTitle: data.marketTitle,
+          outcome: data.outcome,
+          type: data.type,
+          shares: data.shares.toString(),
+          price: data.price.toString(),
+        }),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to execute trade');
+      }
+      
+      return response.json();
+    },
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/user/profile'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/positions'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/trades'] });
+      
+      toast({
+        title: `Market ${variables.type} Executed`,
+        description: `${variables.type === 'BUY' ? 'Bought' : 'Sold'} ${variables.shares} ${variables.outcome} shares at $${variables.price.toFixed(2)}`,
+        className: variables.type === 'BUY' 
+          ? 'bg-green-500/10 border-green-500/20 text-green-700 dark:text-green-300'
+          : 'bg-blue-500/10 border-blue-500/20',
+      });
+    },
+    onError: (error: Error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+      } else {
+        toast({
+          title: 'Order Failed',
+          description: error.message,
+          variant: 'destructive',
+        });
+      }
+    },
+  });
+}
+
+export function usePlaceLimitOrder() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async (data: {
+      marketId: string;
+      marketTitle: string;
+      outcome: 'YES' | 'NO';
+      type: 'BUY' | 'SELL';
+      shares: number;
+      limitPrice: number;
+    }) => {
+      const response = await fetch('/api/orders/limit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          marketId: data.marketId,
+          marketTitle: data.marketTitle,
+          outcome: data.outcome,
+          type: data.type,
+          shares: data.shares.toString(),
+          limitPrice: data.limitPrice.toString(),
+        }),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to place limit order');
+      }
+      
+      return response.json();
+    },
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/user/profile'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/positions'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/orders/limit'] });
+      
+      toast({
+        title: 'Limit Order Placed',
+        description: `${variables.type} limit order for ${variables.shares} ${variables.outcome} shares at $${variables.limitPrice.toFixed(2)}`,
+      });
+    },
+    onError: (error: Error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+      } else {
+        toast({
+          title: 'Order Failed',
+          description: error.message,
+          variant: 'destructive',
+        });
+      }
+    },
+  });
+}
+
+export function usePlaceStopLoss() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async (data: {
+      marketId: string;
+      marketTitle: string;
+      outcome: 'YES' | 'NO';
+      shares: number;
+      triggerPrice: number;
+    }) => {
+      const response = await fetch('/api/orders/stoploss', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          marketId: data.marketId,
+          marketTitle: data.marketTitle,
+          outcome: data.outcome,
+          shares: data.shares.toString(),
+          triggerPrice: data.triggerPrice.toString(),
+        }),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to place stop-loss');
+      }
+      
+      return response.json();
+    },
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/orders/stoploss'] });
+      
+      toast({
+        title: 'Stop-Loss Order Placed',
+        description: `Will sell ${variables.shares} ${variables.outcome} shares if price drops to $${variables.triggerPrice.toFixed(2)}`,
+        className: 'bg-orange-500/10 border-orange-500/20',
+      });
+    },
+    onError: (error: Error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+      } else {
+        toast({
+          title: 'Order Failed',
+          description: error.message,
+          variant: 'destructive',
+        });
+      }
+    },
+  });
+}
+
+export function useCancelOrder() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async (orderId: string) => {
+      const response = await fetch(`/api/orders/limit/${orderId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to cancel order');
+      }
+      
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/user/profile'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/positions'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/orders/limit'] });
+      
+      toast({
+        title: 'Order Cancelled',
+        description: 'Limit order has been cancelled',
+      });
+    },
+    onError: (error: Error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+      } else {
+        toast({
+          title: 'Failed to Cancel',
+          description: error.message,
+          variant: 'destructive',
+        });
+      }
+    },
+  });
+}
+
+export function useCancelStopLoss() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async (orderId: string) => {
+      const response = await fetch(`/api/orders/stoploss/${orderId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to cancel stop-loss');
+      }
+      
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/orders/stoploss'] });
+      
+      toast({
+        title: 'Stop-Loss Removed',
+        description: 'Stop-loss order has been cancelled',
+      });
+    },
+    onError: (error: Error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+      } else {
+        toast({
+          title: 'Failed to Remove',
+          description: error.message,
+          variant: 'destructive',
+        });
+      }
+    },
+  });
+}
+
+export function useUpdateSettings() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async (maxAllocationPerMarket: number) => {
+      const response = await fetch('/api/user/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ maxAllocationPerMarket }),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to update settings');
+      }
+      
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/user/profile'] });
+      
+      toast({
+        title: 'Settings Updated',
+        description: 'Your trading settings have been saved',
+      });
+    },
+    onError: (error: Error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+      } else {
+        toast({
+          title: 'Failed to Update',
+          description: error.message,
+          variant: 'destructive',
+        });
+      }
+    },
+  });
+}
+
+export function useMarkNotificationRead() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (notificationId: string) => {
+      const response = await fetch(`/api/notifications/${notificationId}/read`, {
+        method: 'PATCH',
+        credentials: 'include',
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to mark notification as read');
+      }
+      
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
+    },
+  });
+}
+
+export function useClearNotifications() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async () => {
+      const response = await fetch('/api/notifications', {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to clear notifications');
+      }
+      
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications'] });
+      
+      toast({
+        title: 'Notifications Cleared',
+        description: 'All notifications have been removed',
+      });
+    },
+    onError: (error: Error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+      }
+    },
+  });
+}
+
+// Helper functions for client-side calculations
+export function getMarketExposure(
+  marketId: string,
+  positions: Position[],
+  orders: LimitOrder[]
+): number {
+  let exposure = 0;
+  
+  // Current position value
+  positions
+    .filter(p => p.marketId === marketId)
+    .forEach(p => {
+      exposure += parseFloat(p.shares) * parseFloat(p.avgPrice);
+    });
+  
+  // Open limit buy orders
+  orders
+    .filter(o => o.marketId === marketId && o.status === 'OPEN' && o.type === 'BUY')
+    .forEach(o => {
+      exposure += parseFloat(o.shares) * parseFloat(o.limitPrice);
+    });
+  
+  return exposure;
+}
+
+export function canInvestInMarket(
+  marketId: string,
+  amount: number,
+  maxAllocationPerMarket: number,
+  positions: Position[],
+  orders: LimitOrder[]
+): boolean {
+  const totalPortfolio = 10000; // Using initial balance as reference
+  const maxAllowed = (maxAllocationPerMarket / 100) * totalPortfolio;
+  const currentExposure = getMarketExposure(marketId, positions, orders);
+  return (currentExposure + amount) <= maxAllowed;
+}

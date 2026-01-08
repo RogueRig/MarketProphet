@@ -1,5 +1,13 @@
 import { Layout } from "@/components/layout";
-import { useStore } from "@/lib/store";
+import { 
+  useUserProfile, 
+  usePositions, 
+  useTrades, 
+  useOrders, 
+  useStopLosses,
+  useCancelOrder,
+  useCancelStopLoss 
+} from "@/lib/store";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
@@ -10,18 +18,27 @@ import { fetchMarkets } from "@/lib/polymarket";
 import { format } from "date-fns";
 
 export default function Portfolio() {
-  const { positions, balance, trades, orders, stopLossOrders, cancelOrder, cancelStopLoss, settings } = useStore();
+  const { data: profile } = useUserProfile();
+  const { data: positions = [] } = usePositions();
+  const { data: trades = [] } = useTrades();
+  const { data: orders = [] } = useOrders();
+  const { data: stopLossOrders = [] } = useStopLosses();
+  const cancelOrder = useCancelOrder();
+  const cancelStopLoss = useCancelStopLoss();
+  
   const { data: markets } = useQuery({ queryKey: ['markets'], queryFn: fetchMarkets, refetchInterval: 5000 });
+
+  const balance = profile ? parseFloat(profile.balance) : 0;
 
   const totalPositionValue = positions.reduce((acc, pos) => {
     const market = markets?.find(m => m.id === pos.marketId);
-    let currentPrice = pos.avgPrice;
+    let currentPrice = parseFloat(pos.avgPrice);
     if (market) {
       currentPrice = pos.outcome === 'YES' 
         ? parseFloat(market.outcomePrices[0]) 
         : parseFloat(market.outcomePrices[1]);
     }
-    return acc + (pos.shares * currentPrice);
+    return acc + (parseFloat(pos.shares) * currentPrice);
   }, 0);
 
   const totalPortfolioValue = balance + totalPositionValue;
@@ -107,10 +124,16 @@ export default function Portfolio() {
                          </TableCell>
                          <TableCell className="max-w-[200px] truncate">{order.marketTitle}</TableCell>
                          <TableCell>{order.outcome}</TableCell>
-                         <TableCell className="text-right font-mono">{order.shares}</TableCell>
-                         <TableCell className="text-right font-mono">${order.limitPrice.toFixed(2)}</TableCell>
+                         <TableCell className="text-right font-mono">{parseFloat(order.shares)}</TableCell>
+                         <TableCell className="text-right font-mono">${parseFloat(order.limitPrice).toFixed(2)}</TableCell>
                          <TableCell className="text-right">
-                           <Button variant="destructive" size="sm" onClick={() => cancelOrder(order.id)} className="h-7 text-xs">
+                           <Button 
+                             variant="destructive" 
+                             size="sm" 
+                             onClick={() => cancelOrder.mutate(order.id)} 
+                             className="h-7 text-xs"
+                             disabled={cancelOrder.isPending}
+                           >
                              Cancel
                            </Button>
                          </TableCell>
@@ -151,10 +174,16 @@ export default function Portfolio() {
                       <TableRow key={sl.id}>
                          <TableCell className="max-w-[200px] truncate">{sl.marketTitle}</TableCell>
                          <TableCell>{sl.outcome}</TableCell>
-                         <TableCell className="text-right font-mono">{sl.shares}</TableCell>
-                         <TableCell className="text-right font-mono text-orange-500">${sl.triggerPrice.toFixed(2)}</TableCell>
+                         <TableCell className="text-right font-mono">{parseFloat(sl.shares)}</TableCell>
+                         <TableCell className="text-right font-mono text-orange-500">${parseFloat(sl.triggerPrice).toFixed(2)}</TableCell>
                          <TableCell className="text-right">
-                           <Button variant="outline" size="sm" onClick={() => cancelStopLoss(sl.id)} className="h-7 text-xs">
+                           <Button 
+                             variant="outline" 
+                             size="sm" 
+                             onClick={() => cancelStopLoss.mutate(sl.id)} 
+                             className="h-7 text-xs"
+                             disabled={cancelStopLoss.isPending}
+                           >
                              Remove
                            </Button>
                          </TableCell>
@@ -193,13 +222,15 @@ export default function Portfolio() {
                   ) : (
                     positions.map((pos) => {
                       const market = markets?.find(m => m.id === pos.marketId);
+                      const avgPrice = parseFloat(pos.avgPrice);
+                      const shares = parseFloat(pos.shares);
                       const currentPrice = market 
                         ? (pos.outcome === 'YES' ? parseFloat(market.outcomePrices[0]) : parseFloat(market.outcomePrices[1]))
-                        : pos.avgPrice;
+                        : avgPrice;
                       
-                      const marketValue = pos.shares * currentPrice;
-                      const ret = (currentPrice - pos.avgPrice) * pos.shares;
-                      const retPercent = pos.avgPrice > 0 ? ((currentPrice - pos.avgPrice) / pos.avgPrice) * 100 : 0;
+                      const marketValue = shares * currentPrice;
+                      const ret = (currentPrice - avgPrice) * shares;
+                      const retPercent = avgPrice > 0 ? ((currentPrice - avgPrice) / avgPrice) * 100 : 0;
                       
                       return (
                         <TableRow key={`${pos.marketId}-${pos.outcome}`}>
@@ -211,8 +242,8 @@ export default function Portfolio() {
                               {pos.outcome}
                             </span>
                           </TableCell>
-                          <TableCell className="text-right font-mono">{pos.shares}</TableCell>
-                          <TableCell className="text-right font-mono">${pos.avgPrice.toFixed(2)}</TableCell>
+                          <TableCell className="text-right font-mono">{shares}</TableCell>
+                          <TableCell className="text-right font-mono">${avgPrice.toFixed(2)}</TableCell>
                           <TableCell className="text-right font-mono">${currentPrice.toFixed(2)}</TableCell>
                           <TableCell className="text-right font-mono font-medium">${marketValue.toFixed(2)}</TableCell>
                           <TableCell className={`text-right font-mono ${ret >= 0 ? 'text-green-500' : 'text-red-500'}`}>
@@ -259,31 +290,37 @@ export default function Portfolio() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    trades.slice(0, 20).map((trade) => (
-                      <TableRow key={trade.id}>
-                        <TableCell className="text-muted-foreground text-xs">
-                          {format(trade.timestamp, 'MMM d, HH:mm')}
-                        </TableCell>
-                        <TableCell>
-                          <span className={`text-xs font-bold uppercase ${trade.type === 'BUY' ? 'text-green-500' : 'text-blue-500'}`}>
-                            {trade.type}
-                          </span>
-                        </TableCell>
-                        <TableCell className="max-w-[200px] truncate" title={trade.marketTitle}>
-                          {trade.marketTitle}
-                        </TableCell>
-                        <TableCell>
-                           <span className={`text-xs ${trade.outcome === 'YES' ? 'text-green-600' : 'text-red-600'}`}>
-                            {trade.outcome}
-                           </span>
-                        </TableCell>
-                        <TableCell className="text-right font-mono">{trade.shares}</TableCell>
-                        <TableCell className="text-right font-mono">${trade.price.toFixed(2)}</TableCell>
-                        <TableCell className="text-right font-mono text-muted-foreground">
-                          ${(trade.shares * trade.price).toFixed(2)}
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    trades.slice(0, 20).map((trade) => {
+                      const shares = parseFloat(trade.shares);
+                      const price = parseFloat(trade.price);
+                      const total = shares * price;
+                      
+                      return (
+                        <TableRow key={trade.id}>
+                          <TableCell className="text-muted-foreground text-xs">
+                            {format(new Date(trade.timestamp), 'MMM d, HH:mm')}
+                          </TableCell>
+                          <TableCell>
+                            <span className={`text-xs font-bold uppercase ${trade.type === 'BUY' ? 'text-green-500' : 'text-blue-500'}`}>
+                              {trade.type}
+                            </span>
+                          </TableCell>
+                          <TableCell className="max-w-[200px] truncate" title={trade.marketTitle}>
+                            {trade.marketTitle}
+                          </TableCell>
+                          <TableCell>
+                             <span className={`text-xs ${trade.outcome === 'YES' ? 'text-green-600' : 'text-red-600'}`}>
+                              {trade.outcome}
+                             </span>
+                          </TableCell>
+                          <TableCell className="text-right font-mono">{shares}</TableCell>
+                          <TableCell className="text-right font-mono">${price.toFixed(2)}</TableCell>
+                          <TableCell className="text-right font-mono text-muted-foreground">
+                            ${total.toFixed(2)}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
                   )}
                 </TableBody>
              </Table>

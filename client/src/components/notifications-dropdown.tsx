@@ -1,4 +1,4 @@
-import { useStore } from "@/lib/store";
+import { useNotifications, useMarkNotificationRead, useClearNotifications } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -8,11 +8,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Bell, Check, Trash2 } from "lucide-react";
+import { Bell, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 
 export function NotificationsDropdown() {
-  const { notifications, markNotificationRead, clearNotifications } = useStore();
+  const { data: notifications = [] } = useNotifications();
+  const markRead = useMarkNotificationRead();
+  const clearAll = useClearNotifications();
   
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -36,7 +38,7 @@ export function NotificationsDropdown() {
               variant="ghost" 
               size="sm" 
               className="h-6 text-xs text-muted-foreground"
-              onClick={() => clearNotifications()}
+              onClick={() => clearAll.mutate()}
             >
               <Trash2 className="h-3 w-3 mr-1" />
               Clear
@@ -55,7 +57,7 @@ export function NotificationsDropdown() {
               <DropdownMenuItem 
                 key={notification.id}
                 className={`flex flex-col items-start gap-1 p-3 cursor-pointer ${!notification.read ? 'bg-primary/5' : ''}`}
-                onClick={() => markNotificationRead(notification.id)}
+                onClick={() => markRead.mutate(notification.id)}
               >
                 <div className="flex items-center gap-2 w-full">
                   <div className={`w-2 h-2 rounded-full ${notification.type === 'LIMIT_FILL' ? 'bg-green-500' : 'bg-orange-500'}`} />
@@ -65,13 +67,13 @@ export function NotificationsDropdown() {
                   {!notification.read && <div className="w-2 h-2 rounded-full bg-primary" />}
                 </div>
                 <div className="text-xs text-muted-foreground pl-4">
-                  {notification.orderType} {notification.shares} {notification.outcome} @ ${notification.price.toFixed(2)}
+                  {notification.orderType} {parseFloat(notification.shares)} {notification.outcome} @ ${parseFloat(notification.price).toFixed(2)}
                 </div>
                 <div className="text-xs text-muted-foreground pl-4 truncate max-w-full">
                   {notification.marketTitle}
                 </div>
                 <div className="text-xs text-muted-foreground/60 pl-4">
-                  {format(notification.timestamp, 'MMM d, HH:mm')}
+                  {format(new Date(notification.timestamp), 'MMM d, HH:mm')}
                 </div>
               </DropdownMenuItem>
             ))}

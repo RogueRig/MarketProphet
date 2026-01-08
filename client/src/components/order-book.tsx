@@ -1,6 +1,5 @@
-import { useStore } from "@/lib/store";
+import { useOrders } from "@/lib/store";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { BookOpen } from "lucide-react";
 
 interface OrderBookProps {
@@ -8,34 +7,38 @@ interface OrderBookProps {
 }
 
 export function OrderBook({ marketId }: OrderBookProps) {
-  const { orders } = useStore();
+  const { data: orders = [] } = useOrders();
   
   const openOrders = orders.filter(o => o.marketId === marketId && o.status === 'OPEN');
   
   const buyOrders = openOrders
     .filter(o => o.type === 'BUY')
-    .sort((a, b) => b.limitPrice - a.limitPrice);
+    .sort((a, b) => parseFloat(b.limitPrice) - parseFloat(a.limitPrice));
   
   const sellOrders = openOrders
     .filter(o => o.type === 'SELL')
-    .sort((a, b) => a.limitPrice - b.limitPrice);
+    .sort((a, b) => parseFloat(a.limitPrice) - parseFloat(b.limitPrice));
 
   // Aggregate orders by price level
   const aggregateBuys = buyOrders.reduce((acc, order) => {
-    const key = `${order.outcome}-${order.limitPrice.toFixed(2)}`;
+    const price = parseFloat(order.limitPrice);
+    const shares = parseFloat(order.shares);
+    const key = `${order.outcome}-${price.toFixed(2)}`;
     if (!acc[key]) {
-      acc[key] = { outcome: order.outcome, price: order.limitPrice, totalShares: 0 };
+      acc[key] = { outcome: order.outcome, price, totalShares: 0 };
     }
-    acc[key].totalShares += order.shares;
+    acc[key].totalShares += shares;
     return acc;
   }, {} as Record<string, { outcome: 'YES' | 'NO'; price: number; totalShares: number }>);
 
   const aggregateSells = sellOrders.reduce((acc, order) => {
-    const key = `${order.outcome}-${order.limitPrice.toFixed(2)}`;
+    const price = parseFloat(order.limitPrice);
+    const shares = parseFloat(order.shares);
+    const key = `${order.outcome}-${price.toFixed(2)}`;
     if (!acc[key]) {
-      acc[key] = { outcome: order.outcome, price: order.limitPrice, totalShares: 0 };
+      acc[key] = { outcome: order.outcome, price, totalShares: 0 };
     }
-    acc[key].totalShares += order.shares;
+    acc[key].totalShares += shares;
     return acc;
   }, {} as Record<string, { outcome: 'YES' | 'NO'; price: number; totalShares: number }>);
 

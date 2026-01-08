@@ -1,5 +1,6 @@
 import { Link, useLocation } from "wouter";
-import { useStore } from "@/lib/store";
+import { useAuth } from "@/hooks/use-auth";
+import { useUserProfile } from "@/lib/store";
 import { 
   LayoutDashboard, 
   PieChart, 
@@ -17,9 +18,13 @@ import { SettingsDialog } from "./settings-dialog";
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
-  const { balance, logout, email } = useStore();
+  const { user, logout } = useAuth();
+  const { data: profile } = useUserProfile();
   const [open, setOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const balance = profile ? parseFloat(profile.balance) : 0;
+  const email = user?.email || '';
 
   const navItems = [
     { href: "/", label: "Markets", icon: LayoutDashboard },
@@ -72,7 +77,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <div className="flex items-center justify-between px-2 mb-2">
            <div className="flex flex-col">
               <span className="text-xs text-muted-foreground">Logged in as</span>
-              <span className="text-sm font-medium truncate max-w-[140px]" title={email || ''}>{email}</span>
+              <span className="text-sm font-medium truncate max-w-[140px]" title={email}>{email}</span>
            </div>
            <div className="flex items-center gap-1">
               <Button variant="ghost" size="icon" onClick={() => setSettingsOpen(true)} title="Settings">

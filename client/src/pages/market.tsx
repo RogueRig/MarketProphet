@@ -7,18 +7,16 @@ import { Progress } from "@/components/ui/progress";
 import { TradeDialog } from "@/components/trade-dialog";
 import { OrderBook } from "@/components/order-book";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Share2, Info, TrendingUp } from "lucide-react";
+import { ArrowLeft, Share2, Info } from "lucide-react";
 import { Link } from "wouter";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
-import { useStore } from "@/lib/store";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 export default function MarketPage() {
   const [, params] = useRoute("/market/:id");
-  const { checkOrders, resolveMarket } = useStore();
   const { toast } = useToast();
   
   const { data: market, isLoading } = useQuery({
@@ -30,28 +28,6 @@ export default function MarketPage() {
 
   const [tradeOpen, setTradeOpen] = useState(false);
   const [tradeOutcome, setTradeOutcome] = useState<"YES" | "NO">("YES");
-
-  // Check orders and show notifications when price updates
-  useEffect(() => {
-    if (market) {
-       const fills = checkOrders(
-          market.id, 
-          parseFloat(market.outcomePrices[0]), 
-          parseFloat(market.outcomePrices[1])
-       );
-       
-       // Show toast for each fill
-       fills.forEach(fill => {
-          toast({
-            title: fill.type === 'LIMIT_FILL' ? '🔔 Limit Order Filled!' : '⚠️ Stop-Loss Triggered!',
-            description: `${fill.orderType} ${fill.shares} ${fill.outcome} @ $${fill.price.toFixed(2)}`,
-            className: fill.type === 'LIMIT_FILL' 
-              ? 'bg-green-500/10 border-green-500/20' 
-              : 'bg-orange-500/10 border-orange-500/20',
-          });
-       });
-    }
-  }, [market, checkOrders, toast]);
 
   if (isLoading) {
     return (
@@ -76,14 +52,6 @@ export default function MarketPage() {
     toast({ title: "Link copied to clipboard" });
   };
 
-  const handleResolve = (outcome: "YES" | "NO") => {
-     resolveMarket(market.id, outcome);
-     toast({
-        title: "Market Resolved",
-        description: `Market settled as ${outcome}. P/L updated.`,
-     });
-  };
-
   return (
     <Layout>
       <div className="max-w-4xl mx-auto pb-20">
@@ -105,10 +73,6 @@ export default function MarketPage() {
              <div className="flex-1 space-y-4">
                <div className="flex items-start justify-between">
                   <h1 className="text-3xl md:text-4xl font-bold leading-tight">{market.question}</h1>
-                  <div className="flex gap-2">
-                     <Button variant="outline" size="sm" onClick={() => handleResolve("YES")} className="text-xs h-7">Resolve YES</Button>
-                     <Button variant="outline" size="sm" onClick={() => handleResolve("NO")} className="text-xs h-7">Resolve NO</Button>
-                  </div>
                </div>
                
                <div className="flex items-center gap-4 text-sm text-muted-foreground">
@@ -181,7 +145,7 @@ export default function MarketPage() {
           <Card>
             <CardHeader>
                <CardTitle className="text-base font-medium flex items-center gap-2">
-                  <TrendingUp className="h-4 w-4" /> Probability History
+                  Probability History
                </CardTitle>
             </CardHeader>
             <CardContent className="h-[300px]">

@@ -3,12 +3,18 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useStore } from "@/lib/store";
-import { useToast } from "@/hooks/use-toast";
+import { 
+  useUserProfile, 
+  usePositions, 
+  useOrders, 
+  useMarketTrade, 
+  usePlaceLimitOrder, 
+  usePlaceStopLoss,
+  getMarketExposure,
+  canInvestInMarket 
+} from "@/lib/store";
 import { PolymarketEvent } from "@/lib/polymarket";
 import { Loader2, AlertTriangle } from "lucide-react";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 
 interface TradeDialogProps {
   market: PolymarketEvent;
@@ -23,10 +29,17 @@ export function TradeDialog({ market, open, onOpenChange, defaultOutcome = "YES"
   const [limitPrice, setLimitPrice] = useState<string>("");
   const [stopLossPrice, setStopLossPrice] = useState<string>("");
   const [orderMode, setOrderMode] = useState<"market" | "limit" | "stop-loss">("market");
-  const [isSubmitting, setIsSubmitting] = useState(false);
   
-  const { buyShares, sellShares, placeLimitOrder, placeStopLoss, balance, positions, settings, getMarketExposure } = useStore();
-  const { toast } = useToast();
+  const { data: profile } = useUserProfile();
+  const { data: positions = [] } = usePositions();
+  const { data: orders = [] } = useOrders();
+  
+  const marketTrade = useMarketTrade();
+  const placeLimitOrder = usePlaceLimitOrder();
+  const placeStopLoss = usePlaceStopLoss();
+
+  const balance = profile ? parseFloat(profile.balance) : 0;
+  const maxAllocationPerMarket = profile?.maxAllocationPerMarket || 25;
 
   // Reset outcome when dialog opens with new default
   useEffect(() => {
@@ -39,60 +52,56 @@ export function TradeDialog({ market, open, onOpenChange, defaultOutcome = "YES"
   const totalCost = numShares * orderPrice;
   
   // Check allocation limit
-  const currentExposure = getMarketExposure(market.id);
-  const maxAllowed = (settings.maxAllocationPerMarket / 100) * 10000;
+  const currentExposure = getMarketExposure(market.id, positions, orders);
+  const maxAllowed = (maxAllocationPerMarket / 100) * 10000;
   const wouldExceedLimit = (currentExposure + totalCost) > maxAllowed;
   const remainingAllocation = Math.max(0, maxAllowed - currentExposure);
 
   // Get current position for stop-loss
   const currentPosition = positions.find(p => p.marketId === market.id && p.outcome === outcome);
+  const currentPositionShares = currentPosition ? parseFloat(currentPosition.shares) : 0;
+  
+  const isSubmitting = marketTrade.isPending || placeLimitOrder.isPending || placeStopLoss.isPending;
   
   const handleTrade = async (type: "BUY" | "SELL") => {
-    setIsSubmitting(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 600));
-      
       if (orderMode === "limit") {
-        if (!orderPrice || orderPrice <= 0 || orderPrice >= 1) throw new Error("Invalid limit price");
-        placeLimitOrder(market.id, market.question, outcome, type, numShares, orderPrice);
-        toast({
-          title: "Limit Order Placed",
-          description: `${type} limit order for ${numShares} ${outcome} shares at $${orderPrice.toFixed(2)}`,
+        if (!orderPrice || orderPrice <= 0 || orderPrice >= 1) {
+          throw new Error("Invalid limit price");
+        }
+        await placeLimitOrder.mutateAsync({
+          marketId: market.id,
+          marketTitle: market.question,
+          outcome,
+          type,
+          shares: numShares,
+          limitPrice: orderPrice,
         });
       } else if (orderMode === "stop-loss") {
         const triggerPrice = parseFloat(stopLossPrice);
-        if (!triggerPrice || triggerPrice <= 0 || triggerPrice >= 1) throw new Error("Invalid stop-loss price");
-        placeStopLoss(market.id, market.question, outcome, numShares, triggerPrice);
-        toast({
-          title: "Stop-Loss Order Placed",
-          description: `Will sell ${numShares} ${outcome} shares if price drops to $${triggerPrice.toFixed(2)}`,
-          className: "bg-orange-500/10 border-orange-500/20",
+        if (!triggerPrice || triggerPrice <= 0 || triggerPrice >= 1) {
+          throw new Error("Invalid stop-loss price");
+        }
+        await placeStopLoss.mutateAsync({
+          marketId: market.id,
+          marketTitle: market.question,
+          outcome,
+          shares: numShares,
+          triggerPrice,
         });
       } else {
-        if (type === "BUY") {
-          buyShares(market.id, market.question, outcome, numShares, currentPrice);
-          toast({
-            title: "Market Buy Executed",
-            description: `Bought ${numShares} ${outcome} shares at $${currentPrice.toFixed(2)}`,
-            className: "bg-green-500/10 border-green-500/20 text-green-700 dark:text-green-300",
-          });
-        } else {
-          sellShares(market.id, market.question, outcome, numShares, currentPrice);
-          toast({
-             title: "Market Sell Executed",
-             description: `Sold ${numShares} ${outcome} shares at $${currentPrice.toFixed(2)}`,
-          });
-        }
+        await marketTrade.mutateAsync({
+          marketId: market.id,
+          marketTitle: market.question,
+          outcome,
+          type,
+          shares: numShares,
+          price: currentPrice,
+        });
       }
       onOpenChange(false);
-    } catch (error: any) {
-      toast({
-        title: "Order Failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    } finally {
-      setIsSubmitting(false);
+    } catch (error) {
+      // Error handled by mutation hooks
     }
   };
 
@@ -176,7 +185,7 @@ export function TradeDialog({ market, open, onOpenChange, defaultOutcome = "YES"
               </div>
               {orderMode === "stop-loss" && currentPosition && (
                 <p className="text-xs text-muted-foreground">
-                  You have {currentPosition.shares} {outcome} shares to protect
+                  You have {currentPositionShares} {outcome} shares to protect
                 </p>
               )}
             </div>
@@ -237,7 +246,7 @@ export function TradeDialog({ market, open, onOpenChange, defaultOutcome = "YES"
                   <div className="flex items-center gap-2 bg-destructive/10 text-destructive p-3 rounded-lg border border-destructive/20 text-sm">
                     <AlertTriangle className="h-4 w-4 flex-shrink-0" />
                     <span>
-                      Exceeds {settings.maxAllocationPerMarket}% allocation limit. 
+                      Exceeds {maxAllocationPerMarket}% allocation limit. 
                       Remaining: ${remainingAllocation.toFixed(2)}
                     </span>
                   </div>
@@ -257,7 +266,7 @@ export function TradeDialog({ market, open, onOpenChange, defaultOutcome = "YES"
                 className="w-full font-bold bg-orange-600 hover:bg-orange-700" 
                 size="lg" 
                 onClick={() => handleTrade("SELL")} 
-                disabled={isSubmitting || numShares <= 0 || !stopLossPrice || !currentPosition || currentPosition.shares < numShares}
+                disabled={isSubmitting || numShares <= 0 || !stopLossPrice || !currentPosition || currentPositionShares < numShares}
               >
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Set Stop-Loss"}
               </Button>
