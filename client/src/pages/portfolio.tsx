@@ -6,16 +6,24 @@ import {
   useOrders, 
   useStopLosses,
   useCancelOrder,
-  useCancelStopLoss 
+  useCancelStopLoss,
+  usePriceAlerts,
+  useCancelPriceAlert,
+  useTakeProfits,
+  useCancelTakeProfit,
+  useTradeNotes,
+  useSaveTradeNote,
 } from "@/lib/store";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Link } from "wouter";
-import { Wallet, ArrowUpRight, ArrowDownRight, History, ListFilter, ShieldAlert } from "lucide-react";
+import { Wallet, ArrowUpRight, ArrowDownRight, History, ListFilter, ShieldAlert, Bell, Target, FileText, Edit2, Check, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMarkets } from "@/lib/polymarket";
 import { format } from "date-fns";
+import { useState } from "react";
 
 export default function Portfolio() {
   const { data: profile } = useUserProfile();
@@ -23,12 +31,45 @@ export default function Portfolio() {
   const { data: trades = [] } = useTrades();
   const { data: orders = [] } = useOrders();
   const { data: stopLossOrders = [] } = useStopLosses();
+  const { data: priceAlerts = [] } = usePriceAlerts();
+  const { data: takeProfits = [] } = useTakeProfits();
+  const { data: tradeNotes = [] } = useTradeNotes();
+  
   const cancelOrder = useCancelOrder();
   const cancelStopLoss = useCancelStopLoss();
+  const cancelPriceAlert = useCancelPriceAlert();
+  const cancelTakeProfit = useCancelTakeProfit();
+  const saveTradeNote = useSaveTradeNote();
+  
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [noteText, setNoteText] = useState('');
   
   const { data: markets } = useQuery({ queryKey: ['markets'], queryFn: fetchMarkets, refetchInterval: 5000 });
 
   const balance = profile ? parseFloat(profile.balance) : 0;
+  
+  const activeAlerts = priceAlerts.filter(a => a.status === 'ACTIVE');
+  const activeTakeProfits = takeProfits.filter(tp => tp.status === 'ACTIVE');
+  
+  const getTradeNote = (tradeId: string) => tradeNotes.find(n => n.tradeId === tradeId);
+  
+  const startEditingNote = (tradeId: string, existingNote?: string) => {
+    setEditingNoteId(tradeId);
+    setNoteText(existingNote || '');
+  };
+  
+  const saveNote = (tradeId: string) => {
+    if (noteText.trim()) {
+      saveTradeNote.mutate({ tradeId, note: noteText.trim() });
+    }
+    setEditingNoteId(null);
+    setNoteText('');
+  };
+  
+  const cancelEditingNote = () => {
+    setEditingNoteId(null);
+    setNoteText('');
+  };
 
   const totalPositionValue = positions.reduce((acc, pos) => {
     const market = markets?.find(m => m.id === pos.marketId);
@@ -195,6 +236,112 @@ export default function Portfolio() {
            </Card>
         </div>
 
+        {/* Active Take-Profits */}
+        <div className="space-y-4">
+           <div className="flex items-center gap-2">
+             <Target className="h-5 w-5 text-green-500" />
+             <h3 className="text-xl font-semibold">Take-Profit Orders ({activeTakeProfits.length})</h3>
+           </div>
+           <Card>
+             <Table>
+               <TableHeader>
+                 <TableRow>
+                   <TableHead>Market</TableHead>
+                   <TableHead>Outcome</TableHead>
+                   <TableHead className="text-right">Shares</TableHead>
+                   <TableHead className="text-right">Target Price</TableHead>
+                   <TableHead></TableHead>
+                 </TableRow>
+               </TableHeader>
+               <TableBody>
+                 {activeTakeProfits.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                        No active take-profit orders. Set one on a market page to auto-sell at your target.
+                      </TableCell>
+                    </TableRow>
+                 ) : (
+                    activeTakeProfits.map(tp => (
+                      <TableRow key={tp.id} data-testid={`takeprofit-row-${tp.id}`}>
+                         <TableCell className="max-w-[200px] truncate">{tp.marketTitle}</TableCell>
+                         <TableCell>{tp.outcome}</TableCell>
+                         <TableCell className="text-right font-mono">{parseFloat(tp.shares)}</TableCell>
+                         <TableCell className="text-right font-mono text-green-500">${parseFloat(tp.targetPrice).toFixed(2)}</TableCell>
+                         <TableCell className="text-right">
+                           <Button 
+                             variant="outline" 
+                             size="sm" 
+                             onClick={() => cancelTakeProfit.mutate(tp.id)} 
+                             className="h-7 text-xs"
+                             disabled={cancelTakeProfit.isPending}
+                             data-testid={`cancel-takeprofit-${tp.id}`}
+                           >
+                             Remove
+                           </Button>
+                         </TableCell>
+                      </TableRow>
+                    ))
+                 )}
+               </TableBody>
+             </Table>
+           </Card>
+        </div>
+
+        {/* Price Alerts */}
+        <div className="space-y-4">
+           <div className="flex items-center gap-2">
+             <Bell className="h-5 w-5 text-blue-500" />
+             <h3 className="text-xl font-semibold">Price Alerts ({activeAlerts.length})</h3>
+           </div>
+           <Card>
+             <Table>
+               <TableHeader>
+                 <TableRow>
+                   <TableHead>Market</TableHead>
+                   <TableHead>Outcome</TableHead>
+                   <TableHead>Condition</TableHead>
+                   <TableHead className="text-right">Target Price</TableHead>
+                   <TableHead></TableHead>
+                 </TableRow>
+               </TableHeader>
+               <TableBody>
+                 {activeAlerts.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                        No active price alerts. Set one on a market page to get notified.
+                      </TableCell>
+                    </TableRow>
+                 ) : (
+                    activeAlerts.map(alert => (
+                      <TableRow key={alert.id} data-testid={`alert-row-${alert.id}`}>
+                         <TableCell className="max-w-[200px] truncate">{alert.marketTitle}</TableCell>
+                         <TableCell>{alert.outcome}</TableCell>
+                         <TableCell>
+                           <span className={`text-xs font-medium ${alert.condition === 'ABOVE' ? 'text-green-500' : 'text-red-500'}`}>
+                             {alert.condition === 'ABOVE' ? 'Goes above' : 'Falls below'}
+                           </span>
+                         </TableCell>
+                         <TableCell className="text-right font-mono text-blue-500">${parseFloat(alert.targetPrice).toFixed(2)}</TableCell>
+                         <TableCell className="text-right">
+                           <Button 
+                             variant="outline" 
+                             size="sm" 
+                             onClick={() => cancelPriceAlert.mutate(alert.id)} 
+                             className="h-7 text-xs"
+                             disabled={cancelPriceAlert.isPending}
+                             data-testid={`cancel-alert-${alert.id}`}
+                           >
+                             Remove
+                           </Button>
+                         </TableCell>
+                      </TableRow>
+                    ))
+                 )}
+               </TableBody>
+             </Table>
+           </Card>
+        </div>
+
         {/* Positions Table */}
         <div className="space-y-4">
           <h3 className="text-xl font-semibold">Active Positions</h3>
@@ -263,11 +410,13 @@ export default function Portfolio() {
           </Card>
         </div>
 
-        {/* Recent Trades */}
+        {/* Recent Trades with Notes */}
         <div className="space-y-4">
           <div className="flex items-center gap-2">
              <History className="h-5 w-5 text-muted-foreground" />
              <h3 className="text-xl font-semibold">Trade History</h3>
+             <FileText className="h-4 w-4 text-muted-foreground ml-2" />
+             <span className="text-sm text-muted-foreground">Click the note icon to add reasoning</span>
           </div>
           <Card>
              <Table>
@@ -280,12 +429,13 @@ export default function Portfolio() {
                     <TableHead className="text-right">Shares</TableHead>
                     <TableHead className="text-right">Price</TableHead>
                     <TableHead className="text-right">Total</TableHead>
+                    <TableHead>Note</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {trades.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                         No trades yet.
                       </TableCell>
                     </TableRow>
@@ -294,9 +444,11 @@ export default function Portfolio() {
                       const shares = parseFloat(trade.shares);
                       const price = parseFloat(trade.price);
                       const total = shares * price;
+                      const existingNote = getTradeNote(trade.id);
+                      const isEditing = editingNoteId === trade.id;
                       
                       return (
-                        <TableRow key={trade.id}>
+                        <TableRow key={trade.id} data-testid={`trade-row-${trade.id}`}>
                           <TableCell className="text-muted-foreground text-xs">
                             {format(new Date(trade.timestamp), 'MMM d, HH:mm')}
                           </TableCell>
@@ -317,6 +469,62 @@ export default function Portfolio() {
                           <TableCell className="text-right font-mono">${price.toFixed(2)}</TableCell>
                           <TableCell className="text-right font-mono text-muted-foreground">
                             ${total.toFixed(2)}
+                          </TableCell>
+                          <TableCell className="max-w-[200px]">
+                            {isEditing ? (
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  value={noteText}
+                                  onChange={(e) => setNoteText(e.target.value)}
+                                  placeholder="Add your reasoning..."
+                                  className="h-7 text-xs"
+                                  data-testid={`note-input-${trade.id}`}
+                                />
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="h-7 w-7" 
+                                  onClick={() => saveNote(trade.id)}
+                                  data-testid={`save-note-${trade.id}`}
+                                >
+                                  <Check className="h-3 w-3 text-green-500" />
+                                </Button>
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="h-7 w-7" 
+                                  onClick={cancelEditingNote}
+                                >
+                                  <X className="h-3 w-3 text-red-500" />
+                                </Button>
+                              </div>
+                            ) : existingNote ? (
+                              <div className="flex items-center gap-1">
+                                <span className="text-xs text-muted-foreground truncate" title={existingNote.note}>
+                                  {existingNote.note}
+                                </span>
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="h-6 w-6" 
+                                  onClick={() => startEditingNote(trade.id, existingNote.note)}
+                                  data-testid={`edit-note-${trade.id}`}
+                                >
+                                  <Edit2 className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="h-6 text-xs text-muted-foreground"
+                                onClick={() => startEditingNote(trade.id)}
+                                data-testid={`add-note-${trade.id}`}
+                              >
+                                <FileText className="h-3 w-3 mr-1" />
+                                Add note
+                              </Button>
+                            )}
                           </TableCell>
                         </TableRow>
                       );

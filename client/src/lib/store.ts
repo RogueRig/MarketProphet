@@ -705,6 +705,285 @@ export function useExposure() {
   });
 }
 
+// Price Alert types
+export interface PriceAlert {
+  id: string;
+  marketId: string;
+  marketTitle: string;
+  outcome: string;
+  targetPrice: string;
+  condition: 'ABOVE' | 'BELOW';
+  status: 'ACTIVE' | 'TRIGGERED' | 'CANCELLED';
+  timestamp: string;
+}
+
+// Take-Profit Order types
+export interface TakeProfitOrder {
+  id: string;
+  marketId: string;
+  marketTitle: string;
+  outcome: string;
+  shares: string;
+  targetPrice: string;
+  status: 'ACTIVE' | 'TRIGGERED' | 'CANCELLED';
+  timestamp: string;
+}
+
+// Trade Note types
+export interface TradeNote {
+  id: string;
+  tradeId: string;
+  note: string;
+  timestamp: string;
+}
+
+// Price Alerts API
+async function fetchPriceAlerts(): Promise<PriceAlert[]> {
+  const response = await fetch('/api/alerts', { credentials: 'include' });
+  if (!response.ok) throw new Error(`${response.status}: ${response.statusText}`);
+  return response.json();
+}
+
+export function usePriceAlerts() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  
+  return useQuery<PriceAlert[]>({
+    queryKey: ['/api/alerts'],
+    queryFn: fetchPriceAlerts,
+    enabled: !!user,
+    retry: (failureCount, error) => {
+      if (isUnauthorizedError(error as Error)) {
+        redirectToLogin(toast);
+        return false;
+      }
+      return failureCount < 3;
+    },
+  });
+}
+
+export function useCreatePriceAlert() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async (data: { marketId: string; marketTitle: string; outcome: string; targetPrice: string; condition: string }) => {
+      const response = await fetch('/api/alerts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(data),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to create alert');
+      }
+      
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/alerts'] });
+      toast({ title: 'Price Alert Created', description: 'You will be notified when the price is reached' });
+    },
+    onError: (error: Error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+      } else {
+        toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      }
+    },
+  });
+}
+
+export function useCancelPriceAlert() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async (alertId: string) => {
+      const response = await fetch(`/api/alerts/${alertId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      
+      if (!response.ok) throw new Error('Failed to cancel alert');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/alerts'] });
+      toast({ title: 'Alert Cancelled' });
+    },
+    onError: (error: Error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+      }
+    },
+  });
+}
+
+// Take-Profit Orders API
+async function fetchTakeProfits(): Promise<TakeProfitOrder[]> {
+  const response = await fetch('/api/orders/takeprofit', { credentials: 'include' });
+  if (!response.ok) throw new Error(`${response.status}: ${response.statusText}`);
+  return response.json();
+}
+
+export function useTakeProfits() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  
+  return useQuery<TakeProfitOrder[]>({
+    queryKey: ['/api/orders/takeprofit'],
+    queryFn: fetchTakeProfits,
+    enabled: !!user,
+    retry: (failureCount, error) => {
+      if (isUnauthorizedError(error as Error)) {
+        redirectToLogin(toast);
+        return false;
+      }
+      return failureCount < 3;
+    },
+  });
+}
+
+export function useCreateTakeProfit() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async (data: { marketId: string; marketTitle: string; outcome: string; shares: string; targetPrice: string }) => {
+      const response = await fetch('/api/orders/takeprofit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(data),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to create take-profit order');
+      }
+      
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/orders/takeprofit'] });
+      toast({ title: 'Take-Profit Order Created', description: 'Will automatically sell when price is reached' });
+    },
+    onError: (error: Error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+      } else {
+        toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      }
+    },
+  });
+}
+
+export function useCancelTakeProfit() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async (orderId: string) => {
+      const response = await fetch(`/api/orders/takeprofit/${orderId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      
+      if (!response.ok) throw new Error('Failed to cancel take-profit order');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/orders/takeprofit'] });
+      toast({ title: 'Take-Profit Cancelled' });
+    },
+    onError: (error: Error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+      }
+    },
+  });
+}
+
+// Trade Notes API
+export function useTradeNotes() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  
+  return useQuery<TradeNote[]>({
+    queryKey: ['/api/notes'],
+    queryFn: async () => {
+      const response = await fetch('/api/notes', { credentials: 'include' });
+      if (!response.ok) throw new Error(`${response.status}: ${response.statusText}`);
+      return response.json();
+    },
+    enabled: !!user,
+    retry: (failureCount, error) => {
+      if (isUnauthorizedError(error as Error)) {
+        redirectToLogin(toast);
+        return false;
+      }
+      return failureCount < 3;
+    },
+  });
+}
+
+export function useSaveTradeNote() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async ({ tradeId, note }: { tradeId: string; note: string }) => {
+      const response = await fetch(`/api/notes/${tradeId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ note }),
+      });
+      
+      if (!response.ok) throw new Error('Failed to save note');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/notes'] });
+      toast({ title: 'Note Saved' });
+    },
+    onError: (error: Error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+      }
+    },
+  });
+}
+
+export function useDeleteTradeNote() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async (tradeId: string) => {
+      const response = await fetch(`/api/notes/${tradeId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      
+      if (!response.ok) throw new Error('Failed to delete note');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/notes'] });
+      toast({ title: 'Note Deleted' });
+    },
+    onError: (error: Error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+      }
+    },
+  });
+}
+
 // Helper functions for client-side calculations
 export function getMarketExposure(
   marketId: string,

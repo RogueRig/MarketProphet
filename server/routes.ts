@@ -575,5 +575,183 @@ export async function registerRoutes(
     }
   });
 
+  // ===== PRICE ALERTS =====
+  
+  // Get user price alerts
+  app.get("/api/alerts", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const alerts = await storage.getUserPriceAlerts(userId);
+      res.json(alerts);
+    } catch (error) {
+      console.error("Error fetching alerts:", error);
+      res.status(500).json({ message: "Failed to fetch alerts" });
+    }
+  });
+
+  // Create price alert
+  app.post("/api/alerts", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { marketId, marketTitle, outcome, targetPrice, condition } = req.body;
+
+      if (!['ABOVE', 'BELOW'].includes(condition)) {
+        return res.status(400).json({ message: "Condition must be ABOVE or BELOW" });
+      }
+
+      const alert = await storage.createPriceAlert(userId, marketId, marketTitle, outcome, targetPrice, condition);
+      res.json(alert);
+    } catch (error) {
+      console.error("Error creating alert:", error);
+      res.status(500).json({ message: "Failed to create alert" });
+    }
+  });
+
+  // Cancel price alert
+  app.delete("/api/alerts/:alertId", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { alertId } = req.params;
+
+      const alerts = await storage.getUserPriceAlerts(userId);
+      const alert = alerts.find(a => a.id === alertId && a.status === 'ACTIVE');
+      
+      if (!alert) {
+        return res.status(404).json({ message: "Alert not found" });
+      }
+
+      await storage.updatePriceAlertStatus(alertId, 'CANCELLED');
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error cancelling alert:", error);
+      res.status(500).json({ message: "Failed to cancel alert" });
+    }
+  });
+
+  // ===== TAKE-PROFIT ORDERS =====
+  
+  // Get user take-profit orders
+  app.get("/api/orders/takeprofit", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const orders = await storage.getUserTakeProfits(userId);
+      res.json(orders);
+    } catch (error) {
+      console.error("Error fetching take-profits:", error);
+      res.status(500).json({ message: "Failed to fetch take-profit orders" });
+    }
+  });
+
+  // Create take-profit order
+  app.post("/api/orders/takeprofit", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { marketId, marketTitle, outcome, shares, targetPrice } = req.body;
+
+      // Check user has sufficient shares
+      const position = await storage.getPosition(userId, marketId, outcome);
+      if (!position || parseFloat(position.shares) < parseFloat(shares)) {
+        return res.status(400).json({ message: "Insufficient shares for take-profit order" });
+      }
+
+      const order = await storage.createTakeProfit(userId, marketId, marketTitle, outcome, shares, targetPrice);
+      res.json(order);
+    } catch (error) {
+      console.error("Error creating take-profit:", error);
+      res.status(500).json({ message: "Failed to create take-profit order" });
+    }
+  });
+
+  // Cancel take-profit order
+  app.delete("/api/orders/takeprofit/:orderId", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { orderId } = req.params;
+
+      const orders = await storage.getUserTakeProfits(userId);
+      const order = orders.find(o => o.id === orderId && o.status === 'ACTIVE');
+      
+      if (!order) {
+        return res.status(404).json({ message: "Take-profit order not found" });
+      }
+
+      await storage.updateTakeProfitStatus(orderId, 'CANCELLED');
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error cancelling take-profit:", error);
+      res.status(500).json({ message: "Failed to cancel take-profit order" });
+    }
+  });
+
+  // ===== TRADE NOTES =====
+  
+  // Get all trade notes for user
+  app.get("/api/notes", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const notes = await storage.getUserTradeNotes(userId);
+      res.json(notes);
+    } catch (error) {
+      console.error("Error fetching notes:", error);
+      res.status(500).json({ message: "Failed to fetch notes" });
+    }
+  });
+
+  // Get note for specific trade
+  app.get("/api/notes/:tradeId", isAuthenticated, async (req: any, res) => {
+    try {
+      const { tradeId } = req.params;
+      const note = await storage.getTradeNote(tradeId);
+      res.json(note || null);
+    } catch (error) {
+      console.error("Error fetching note:", error);
+      res.status(500).json({ message: "Failed to fetch note" });
+    }
+  });
+
+  // Create or update trade note
+  app.post("/api/notes/:tradeId", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { tradeId } = req.params;
+      const { note } = req.body;
+
+      if (!note || typeof note !== 'string') {
+        return res.status(400).json({ message: "Note is required" });
+      }
+
+      // Check if note already exists
+      const existingNote = await storage.getTradeNote(tradeId);
+      
+      if (existingNote) {
+        await storage.updateTradeNote(existingNote.id, note);
+        res.json({ ...existingNote, note });
+      } else {
+        const newNote = await storage.createTradeNote(userId, tradeId, note);
+        res.json(newNote);
+      }
+    } catch (error) {
+      console.error("Error saving note:", error);
+      res.status(500).json({ message: "Failed to save note" });
+    }
+  });
+
+  // Delete trade note
+  app.delete("/api/notes/:tradeId", isAuthenticated, async (req: any, res) => {
+    try {
+      const { tradeId } = req.params;
+      
+      const note = await storage.getTradeNote(tradeId);
+      if (note) {
+        await storage.deleteTradeNote(note.id);
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting note:", error);
+      res.status(500).json({ message: "Failed to delete note" });
+    }
+  });
+
   return httpServer;
 }

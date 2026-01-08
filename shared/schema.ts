@@ -56,7 +56,7 @@ export const stopLossOrders = pgTable("stop_loss_orders", {
 export const notifications = pgTable("notifications", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
-  type: text("type").notNull(), // 'LIMIT_FILL' or 'STOP_LOSS'
+  type: text("type").notNull(), // 'LIMIT_FILL', 'STOP_LOSS', 'TAKE_PROFIT', 'PRICE_ALERT'
   marketTitle: text("market_title").notNull(),
   outcome: text("outcome").notNull(),
   orderType: text("order_type").notNull(), // 'BUY' or 'SELL'
@@ -66,12 +66,47 @@ export const notifications = pgTable("notifications", {
   timestamp: timestamp("timestamp").notNull().defaultNow(),
 });
 
+export const priceAlerts = pgTable("price_alerts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  marketId: text("market_id").notNull(),
+  marketTitle: text("market_title").notNull(),
+  outcome: text("outcome").notNull(),
+  targetPrice: decimal("target_price", { precision: 10, scale: 4 }).notNull(),
+  condition: text("condition").notNull(), // 'ABOVE' or 'BELOW'
+  status: text("status").notNull().default('ACTIVE'), // 'ACTIVE', 'TRIGGERED', 'CANCELLED'
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+});
+
+export const takeProfitOrders = pgTable("take_profit_orders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  marketId: text("market_id").notNull(),
+  marketTitle: text("market_title").notNull(),
+  outcome: text("outcome").notNull(),
+  shares: decimal("shares", { precision: 10, scale: 2 }).notNull(),
+  targetPrice: decimal("target_price", { precision: 10, scale: 4 }).notNull(),
+  status: text("status").notNull().default('ACTIVE'), // 'ACTIVE', 'TRIGGERED', 'CANCELLED'
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+});
+
+export const tradeNotes = pgTable("trade_notes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  tradeId: varchar("trade_id").notNull().references(() => trades.id, { onDelete: 'cascade' }),
+  note: text("note").notNull(),
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+});
+
 // Insert schemas
 export const insertPositionSchema = createInsertSchema(positions).omit({ id: true });
 export const insertTradeSchema = createInsertSchema(trades).omit({ id: true, timestamp: true });
 export const insertLimitOrderSchema = createInsertSchema(limitOrders).omit({ id: true, status: true, timestamp: true });
 export const insertStopLossOrderSchema = createInsertSchema(stopLossOrders).omit({ id: true, status: true, timestamp: true });
 export const insertNotificationSchema = createInsertSchema(notifications).omit({ id: true, read: true, timestamp: true });
+export const insertPriceAlertSchema = createInsertSchema(priceAlerts).omit({ id: true, status: true, timestamp: true });
+export const insertTakeProfitOrderSchema = createInsertSchema(takeProfitOrders).omit({ id: true, status: true, timestamp: true });
+export const insertTradeNoteSchema = createInsertSchema(tradeNotes).omit({ id: true, timestamp: true });
 
 // Types
 export type Position = typeof positions.$inferSelect;
@@ -79,3 +114,6 @@ export type Trade = typeof trades.$inferSelect;
 export type LimitOrder = typeof limitOrders.$inferSelect;
 export type StopLossOrder = typeof stopLossOrders.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
+export type PriceAlert = typeof priceAlerts.$inferSelect;
+export type TakeProfitOrder = typeof takeProfitOrders.$inferSelect;
+export type TradeNote = typeof tradeNotes.$inferSelect;

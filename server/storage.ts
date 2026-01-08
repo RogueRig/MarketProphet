@@ -7,12 +7,18 @@ import {
   limitOrders,
   stopLossOrders,
   notifications,
+  priceAlerts,
+  takeProfitOrders,
+  tradeNotes,
   type User,
   type Position,
   type Trade,
   type LimitOrder,
   type StopLossOrder,
   type Notification,
+  type PriceAlert,
+  type TakeProfitOrder,
+  type TradeNote,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -49,6 +55,25 @@ export interface IStorage {
   createNotification(userId: string, type: string, marketTitle: string, outcome: string, orderType: string, shares: string, price: string): Promise<Notification>;
   markNotificationRead(notificationId: string): Promise<void>;
   clearUserNotifications(userId: string): Promise<void>;
+  
+  // Price alert operations
+  getUserPriceAlerts(userId: string): Promise<PriceAlert[]>;
+  getActivePriceAlertsForMarket(marketId: string): Promise<PriceAlert[]>;
+  createPriceAlert(userId: string, marketId: string, marketTitle: string, outcome: string, targetPrice: string, condition: string): Promise<PriceAlert>;
+  updatePriceAlertStatus(alertId: string, status: string): Promise<void>;
+  
+  // Take-profit order operations
+  getUserTakeProfits(userId: string): Promise<TakeProfitOrder[]>;
+  getActiveTakeProfitsForMarket(marketId: string): Promise<TakeProfitOrder[]>;
+  createTakeProfit(userId: string, marketId: string, marketTitle: string, outcome: string, shares: string, targetPrice: string): Promise<TakeProfitOrder>;
+  updateTakeProfitStatus(orderId: string, status: string): Promise<void>;
+  
+  // Trade notes operations
+  getTradeNote(tradeId: string): Promise<TradeNote | undefined>;
+  getUserTradeNotes(userId: string): Promise<TradeNote[]>;
+  createTradeNote(userId: string, tradeId: string, note: string): Promise<TradeNote>;
+  updateTradeNote(noteId: string, note: string): Promise<void>;
+  deleteTradeNote(noteId: string): Promise<void>;
 }
 
 export class DbStorage implements IStorage {
@@ -209,6 +234,97 @@ export class DbStorage implements IStorage {
 
   async clearUserNotifications(userId: string): Promise<void> {
     await db.delete(notifications).where(eq(notifications.userId, userId));
+  }
+
+  // Price alert operations
+  async getUserPriceAlerts(userId: string): Promise<PriceAlert[]> {
+    return await db.select().from(priceAlerts)
+      .where(eq(priceAlerts.userId, userId))
+      .orderBy(desc(priceAlerts.timestamp));
+  }
+
+  async getActivePriceAlertsForMarket(marketId: string): Promise<PriceAlert[]> {
+    return await db.select().from(priceAlerts)
+      .where(and(
+        eq(priceAlerts.marketId, marketId),
+        eq(priceAlerts.status, 'ACTIVE')
+      ));
+  }
+
+  async createPriceAlert(userId: string, marketId: string, marketTitle: string, outcome: string, targetPrice: string, condition: string): Promise<PriceAlert> {
+    const [alert] = await db.insert(priceAlerts).values({
+      userId,
+      marketId,
+      marketTitle,
+      outcome,
+      targetPrice,
+      condition
+    }).returning();
+    return alert;
+  }
+
+  async updatePriceAlertStatus(alertId: string, status: string): Promise<void> {
+    await db.update(priceAlerts).set({ status }).where(eq(priceAlerts.id, alertId));
+  }
+
+  // Take-profit order operations
+  async getUserTakeProfits(userId: string): Promise<TakeProfitOrder[]> {
+    return await db.select().from(takeProfitOrders)
+      .where(eq(takeProfitOrders.userId, userId))
+      .orderBy(desc(takeProfitOrders.timestamp));
+  }
+
+  async getActiveTakeProfitsForMarket(marketId: string): Promise<TakeProfitOrder[]> {
+    return await db.select().from(takeProfitOrders)
+      .where(and(
+        eq(takeProfitOrders.marketId, marketId),
+        eq(takeProfitOrders.status, 'ACTIVE')
+      ));
+  }
+
+  async createTakeProfit(userId: string, marketId: string, marketTitle: string, outcome: string, shares: string, targetPrice: string): Promise<TakeProfitOrder> {
+    const [order] = await db.insert(takeProfitOrders).values({
+      userId,
+      marketId,
+      marketTitle,
+      outcome,
+      shares,
+      targetPrice
+    }).returning();
+    return order;
+  }
+
+  async updateTakeProfitStatus(orderId: string, status: string): Promise<void> {
+    await db.update(takeProfitOrders).set({ status }).where(eq(takeProfitOrders.id, orderId));
+  }
+
+  // Trade notes operations
+  async getTradeNote(tradeId: string): Promise<TradeNote | undefined> {
+    const [note] = await db.select().from(tradeNotes).where(eq(tradeNotes.tradeId, tradeId));
+    return note;
+  }
+
+  async getUserTradeNotes(userId: string): Promise<TradeNote[]> {
+    return await db.select().from(tradeNotes)
+      .where(eq(tradeNotes.userId, userId))
+      .orderBy(desc(tradeNotes.timestamp));
+  }
+
+  async createTradeNote(userId: string, tradeId: string, note: string): Promise<TradeNote> {
+    const [tradeNote] = await db.insert(tradeNotes).values({
+      userId,
+      tradeId,
+      note
+    }).returning();
+    return tradeNote;
+  }
+
+  async updateTradeNote(noteId: string, note: string): Promise<void> {
+    await db.update(tradeNotes).set({ note }).where(eq(tradeNotes.id, noteId));
+  }
+
+  async deleteTradeNote(noteId: string): Promise<void> {
+    await db.delete(tradeNotes).where(eq(tradeNotes.id, noteId));
   }
 }
 
