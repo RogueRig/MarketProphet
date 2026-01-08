@@ -19,13 +19,16 @@ import {
   useCancelTrailingStopLoss,
   useBracketOrders,
   useCancelBracketOrder,
+  useRecurringOrders,
+  useCancelRecurringOrder,
+  useToggleRecurringOrder,
 } from "@/lib/store";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Link } from "wouter";
-import { Wallet, ArrowUpRight, ArrowDownRight, History, ListFilter, ShieldAlert, Bell, Target, FileText, Edit2, Check, X, Star, TrendingDown, Layers } from "lucide-react";
+import { Wallet, ArrowUpRight, ArrowDownRight, History, ListFilter, ShieldAlert, Bell, Target, FileText, Edit2, Check, X, Star, TrendingDown, Layers, RefreshCw, Pause, Play } from "lucide-react";
 import { ShareButton } from "@/components/share-button";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMarkets } from "@/lib/polymarket";
@@ -44,6 +47,7 @@ export default function Portfolio() {
   const { data: watchlistItems = [] } = useWatchlist();
   const { data: trailingStopLosses = [] } = useTrailingStopLosses();
   const { data: bracketOrders = [] } = useBracketOrders();
+  const { data: recurringOrders = [] } = useRecurringOrders();
   
   const cancelOrder = useCancelOrder();
   const cancelStopLoss = useCancelStopLoss();
@@ -53,6 +57,8 @@ export default function Portfolio() {
   const removeFromWatchlist = useRemoveFromWatchlist();
   const cancelTrailingStopLoss = useCancelTrailingStopLoss();
   const cancelBracketOrder = useCancelBracketOrder();
+  const cancelRecurringOrder = useCancelRecurringOrder();
+  const toggleRecurringOrder = useToggleRecurringOrder();
   
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [noteText, setNoteText] = useState('');
@@ -65,6 +71,7 @@ export default function Portfolio() {
   const activeTakeProfits = takeProfits.filter(tp => tp.status === 'ACTIVE');
   const activeTrailingStops = trailingStopLosses.filter(t => t.status === 'ACTIVE');
   const activeBracketOrders = bracketOrders.filter(b => b.status === 'ACTIVE');
+  const activeRecurringOrders = recurringOrders.filter((r: any) => r.status === 'ACTIVE' || r.status === 'PAUSED');
   
   const getTradeNote = (tradeId: string) => tradeNotes.find(n => n.tradeId === tradeId);
   
@@ -506,6 +513,78 @@ export default function Portfolio() {
                              data-testid={`cancel-bracket-${bo.id}`}
                            >
                              Remove
+                           </Button>
+                         </TableCell>
+                      </TableRow>
+                    ))
+                 )}
+               </TableBody>
+             </Table>
+           </Card>
+        </div>
+
+        {/* Recurring Orders (DCA) */}
+        <div className="space-y-4">
+           <div className="flex items-center gap-2">
+             <RefreshCw className="h-5 w-5 text-cyan-500" />
+             <h3 className="text-xl font-semibold">Recurring Orders ({activeRecurringOrders.length})</h3>
+           </div>
+           <Card>
+             <Table>
+               <TableHeader>
+                 <TableRow>
+                   <TableHead>Market</TableHead>
+                   <TableHead>Outcome</TableHead>
+                   <TableHead className="text-right">Amount</TableHead>
+                   <TableHead>Frequency</TableHead>
+                   <TableHead>Next Execution</TableHead>
+                   <TableHead>Status</TableHead>
+                   <TableHead></TableHead>
+                 </TableRow>
+               </TableHeader>
+               <TableBody>
+                 {activeRecurringOrders.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                        No recurring orders. Set up dollar-cost averaging on a market page.
+                      </TableCell>
+                    </TableRow>
+                 ) : (
+                    activeRecurringOrders.map((ro: any) => (
+                      <TableRow key={ro.id} data-testid={`recurring-row-${ro.id}`}>
+                         <TableCell className="max-w-[200px] truncate">{ro.marketTitle}</TableCell>
+                         <TableCell>{ro.outcome}</TableCell>
+                         <TableCell className="text-right font-mono">${parseFloat(ro.amount).toFixed(2)}</TableCell>
+                         <TableCell>{ro.frequency}</TableCell>
+                         <TableCell>{format(new Date(ro.nextExecution), 'MMM d, yyyy HH:mm')}</TableCell>
+                         <TableCell>
+                           <span className={ro.status === 'ACTIVE' ? 'text-green-500' : 'text-yellow-500'}>
+                             {ro.status}
+                           </span>
+                         </TableCell>
+                         <TableCell className="text-right flex gap-2 justify-end">
+                           <Button 
+                             variant="outline" 
+                             size="sm" 
+                             onClick={() => toggleRecurringOrder.mutate({ 
+                               orderId: ro.id, 
+                               status: ro.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE' 
+                             })} 
+                             className="h-7 text-xs"
+                             disabled={toggleRecurringOrder.isPending}
+                             data-testid={`toggle-recurring-${ro.id}`}
+                           >
+                             {ro.status === 'ACTIVE' ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+                           </Button>
+                           <Button 
+                             variant="outline" 
+                             size="sm" 
+                             onClick={() => cancelRecurringOrder.mutate(ro.id)} 
+                             className="h-7 text-xs"
+                             disabled={cancelRecurringOrder.isPending}
+                             data-testid={`cancel-recurring-${ro.id}`}
+                           >
+                             Cancel
                            </Button>
                          </TableCell>
                       </TableRow>

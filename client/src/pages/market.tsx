@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TradeDialog } from "@/components/trade-dialog";
 import { OrderBook } from "@/components/order-book";
+import { PriceChart } from "@/components/price-chart";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, Info, Bell, Target } from "lucide-react";
 import { ShareButton } from "@/components/share-button";
@@ -26,9 +27,10 @@ import {
   useRemoveFromWatchlist,
   useCreateTrailingStopLoss,
   useCreateBracketOrder,
+  useCreateRecurringOrder,
 } from "@/lib/store";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Star, TrendingDown, Layers } from "lucide-react";
+import { Star, TrendingDown, Layers, RefreshCw } from "lucide-react";
 
 export default function MarketPage() {
   const [, params] = useRoute("/market/:id");
@@ -46,6 +48,7 @@ export default function MarketPage() {
   const createTakeProfit = useCreateTakeProfit();
   const createTrailingStopLoss = useCreateTrailingStopLoss();
   const createBracketOrder = useCreateBracketOrder();
+  const createRecurringOrder = useCreateRecurringOrder();
   
   // Watchlist
   const { data: watchlistStatus } = useIsInWatchlist(params?.id || "");
@@ -76,6 +79,11 @@ export default function MarketPage() {
   const [bracketShares, setBracketShares] = useState("");
   const [bracketTP, setBracketTP] = useState("");
   const [bracketSL, setBracketSL] = useState("");
+  
+  // Recurring order state
+  const [recurringOutcome, setRecurringOutcome] = useState<string>("YES");
+  const [recurringAmount, setRecurringAmount] = useState("");
+  const [recurringFrequency, setRecurringFrequency] = useState<string>("WEEKLY");
   
   // Get user positions for this market
   const marketPositions = positions.filter(p => p.marketId === params?.id);
@@ -148,6 +156,18 @@ export default function MarketPage() {
     setBracketShares("");
     setBracketTP("");
     setBracketSL("");
+  };
+
+  const handleCreateRecurringOrder = () => {
+    if (!market || !recurringAmount) return;
+    createRecurringOrder.mutate({
+      marketId: market.id,
+      marketTitle: market.question,
+      outcome: recurringOutcome,
+      amount: recurringAmount,
+      frequency: recurringFrequency
+    });
+    setRecurringAmount("");
   };
 
   if (isLoading) {
@@ -267,6 +287,9 @@ export default function MarketPage() {
                </div>
              </CardContent>
           </Card>
+
+          {/* Price Chart */}
+          <PriceChart marketId={market.id} currentYesPrice={yesPrice} />
 
           {/* Order Book */}
           <OrderBook marketId={market.id} />
@@ -562,6 +585,71 @@ export default function MarketPage() {
                     You need to own shares to set a bracket order.
                   </div>
                 )}
+              </CardContent>
+            </Card>
+            
+            {/* Recurring Order (DCA) */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-medium flex items-center gap-2">
+                  <RefreshCw className="h-4 w-4 text-cyan-500" />
+                  Recurring Order (DCA)
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-xs text-muted-foreground">
+                  Automatically invest a fixed amount on a schedule (dollar-cost averaging).
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label className="text-xs">Outcome</Label>
+                    <Select value={recurringOutcome} onValueChange={setRecurringOutcome}>
+                      <SelectTrigger className="h-9" data-testid="recurring-outcome-select">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="YES">YES</SelectItem>
+                        <SelectItem value="NO">NO</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Amount ($)</Label>
+                    <Input
+                      type="number"
+                      step="1"
+                      min="1"
+                      placeholder="e.g., 100"
+                      value={recurringAmount}
+                      onChange={(e) => setRecurringAmount(e.target.value)}
+                      className="h-9"
+                      data-testid="recurring-amount-input"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">Frequency</Label>
+                  <Select value={recurringFrequency} onValueChange={setRecurringFrequency}>
+                    <SelectTrigger className="h-9" data-testid="recurring-frequency-select">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="DAILY">Daily</SelectItem>
+                      <SelectItem value="WEEKLY">Weekly</SelectItem>
+                      <SelectItem value="MONTHLY">Monthly</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button 
+                  className="w-full bg-cyan-600 hover:bg-cyan-700" 
+                  size="sm"
+                  onClick={handleCreateRecurringOrder}
+                  disabled={!recurringAmount || createRecurringOrder.isPending}
+                  data-testid="create-recurring-button"
+                >
+                  <RefreshCw className="h-3 w-3 mr-2" />
+                  Start Recurring Order
+                </Button>
               </CardContent>
             </Card>
           </div>

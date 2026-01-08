@@ -969,5 +969,108 @@ export async function registerRoutes(
     }
   });
 
+  // ===== RECURRING ORDERS =====
+  
+  // Get user recurring orders
+  app.get("/api/orders/recurring", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const orders = await storage.getUserRecurringOrders(userId);
+      res.json(orders);
+    } catch (error) {
+      console.error("Error fetching recurring orders:", error);
+      res.status(500).json({ message: "Failed to fetch recurring orders" });
+    }
+  });
+
+  // Create recurring order
+  app.post("/api/orders/recurring", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { marketId, marketTitle, outcome, amount, frequency } = req.body;
+
+      // Input validation
+      const amountNum = parseFloat(amount);
+      if (isNaN(amountNum) || amountNum < 1) {
+        return res.status(400).json({ message: "Amount must be at least $1" });
+      }
+      if (!['DAILY', 'WEEKLY', 'MONTHLY'].includes(frequency)) {
+        return res.status(400).json({ message: "Invalid frequency" });
+      }
+
+      // Calculate next execution time based on frequency
+      const now = new Date();
+      let nextExecution: Date;
+      switch (frequency) {
+        case 'DAILY':
+          nextExecution = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+          break;
+        case 'WEEKLY':
+          nextExecution = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+          break;
+        case 'MONTHLY':
+          nextExecution = new Date(now.setMonth(now.getMonth() + 1));
+          break;
+        default:
+          nextExecution = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      }
+
+      const order = await storage.createRecurringOrder(
+        userId, marketId, marketTitle, outcome, amountNum.toString(), frequency, nextExecution
+      );
+      res.json(order);
+    } catch (error) {
+      console.error("Error creating recurring order:", error);
+      res.status(500).json({ message: "Failed to create recurring order" });
+    }
+  });
+
+  // Cancel recurring order
+  app.delete("/api/orders/recurring/:orderId", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { orderId } = req.params;
+
+      const orders = await storage.getUserRecurringOrders(userId);
+      const order = orders.find(o => o.id === orderId && o.status === 'ACTIVE');
+      
+      if (!order) {
+        return res.status(404).json({ message: "Recurring order not found" });
+      }
+
+      await storage.updateRecurringOrderStatus(orderId, 'CANCELLED');
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error cancelling recurring order:", error);
+      res.status(500).json({ message: "Failed to cancel recurring order" });
+    }
+  });
+
+  // Pause/resume recurring order
+  app.patch("/api/orders/recurring/:orderId", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { orderId } = req.params;
+      const { status } = req.body;
+
+      if (!['ACTIVE', 'PAUSED'].includes(status)) {
+        return res.status(400).json({ message: "Invalid status" });
+      }
+
+      const orders = await storage.getUserRecurringOrders(userId);
+      const order = orders.find(o => o.id === orderId && ['ACTIVE', 'PAUSED'].includes(o.status));
+      
+      if (!order) {
+        return res.status(404).json({ message: "Recurring order not found" });
+      }
+
+      await storage.updateRecurringOrderStatus(orderId, status);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error updating recurring order:", error);
+      res.status(500).json({ message: "Failed to update recurring order" });
+    }
+  });
+
   return httpServer;
 }

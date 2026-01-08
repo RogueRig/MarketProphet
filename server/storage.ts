@@ -13,6 +13,7 @@ import {
   watchlist,
   trailingStopLoss,
   bracketOrders,
+  recurringOrders,
   type User,
   type Position,
   type Trade,
@@ -25,6 +26,7 @@ import {
   type WatchlistItem,
   type TrailingStopLoss,
   type BracketOrder,
+  type RecurringOrder,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -99,6 +101,12 @@ export interface IStorage {
   getActiveBracketOrdersForMarket(marketId: string): Promise<BracketOrder[]>;
   createBracketOrder(userId: string, marketId: string, marketTitle: string, outcome: string, shares: string, takeProfitPrice: string, stopLossPrice: string): Promise<BracketOrder>;
   updateBracketOrderStatus(orderId: string, status: string): Promise<void>;
+  
+  // Recurring order operations
+  getUserRecurringOrders(userId: string): Promise<RecurringOrder[]>;
+  createRecurringOrder(userId: string, marketId: string, marketTitle: string, outcome: string, amount: string, frequency: string, nextExecution: Date): Promise<RecurringOrder>;
+  updateRecurringOrderStatus(orderId: string, status: string): Promise<void>;
+  incrementRecurringOrderExecution(orderId: string, nextExecution: Date): Promise<void>;
 }
 
 export class DbStorage implements IStorage {
@@ -449,6 +457,40 @@ export class DbStorage implements IStorage {
 
   async updateBracketOrderStatus(orderId: string, status: string): Promise<void> {
     await db.update(bracketOrders).set({ status }).where(eq(bracketOrders.id, orderId));
+  }
+
+  // Recurring order operations
+  async getUserRecurringOrders(userId: string): Promise<RecurringOrder[]> {
+    return await db.select().from(recurringOrders)
+      .where(eq(recurringOrders.userId, userId))
+      .orderBy(desc(recurringOrders.timestamp));
+  }
+
+  async createRecurringOrder(userId: string, marketId: string, marketTitle: string, outcome: string, amount: string, frequency: string, nextExecution: Date): Promise<RecurringOrder> {
+    const [order] = await db.insert(recurringOrders).values({
+      userId,
+      marketId,
+      marketTitle,
+      outcome,
+      amount,
+      frequency,
+      nextExecution
+    }).returning();
+    return order;
+  }
+
+  async updateRecurringOrderStatus(orderId: string, status: string): Promise<void> {
+    await db.update(recurringOrders).set({ status }).where(eq(recurringOrders.id, orderId));
+  }
+
+  async incrementRecurringOrderExecution(orderId: string, nextExecution: Date): Promise<void> {
+    const [order] = await db.select().from(recurringOrders).where(eq(recurringOrders.id, orderId));
+    if (order) {
+      await db.update(recurringOrders).set({ 
+        totalExecuted: order.totalExecuted + 1,
+        nextExecution 
+      }).where(eq(recurringOrders.id, orderId));
+    }
   }
 }
 

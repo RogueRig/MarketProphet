@@ -1335,3 +1335,106 @@ export function useCancelBracketOrder() {
     },
   });
 }
+
+// ===== RECURRING ORDERS =====
+
+export function useRecurringOrders() {
+  return useQuery({
+    queryKey: ['/api/orders/recurring'],
+    queryFn: async () => {
+      const response = await fetch('/api/orders/recurring', { credentials: 'include' });
+      if (response.status === 401) throw new Error('Unauthorized');
+      if (!response.ok) throw new Error('Failed to fetch recurring orders');
+      return response.json();
+    },
+    enabled: true,
+    staleTime: 10000,
+  });
+}
+
+export function useCreateRecurringOrder() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async (data: { marketId: string; marketTitle: string; outcome: string; amount: string; frequency: string }) => {
+      const response = await fetch('/api/orders/recurring', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(data),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to create recurring order');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/orders/recurring'] });
+      toast({ title: 'Recurring Order Created', description: 'Your scheduled investment is now active' });
+    },
+    onError: (error: Error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+      } else {
+        toast({ title: 'Order Failed', description: error.message, variant: 'destructive' });
+      }
+    },
+  });
+}
+
+export function useCancelRecurringOrder() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async (orderId: string) => {
+      const response = await fetch(`/api/orders/recurring/${orderId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      
+      if (!response.ok) throw new Error('Failed to cancel recurring order');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/orders/recurring'] });
+      toast({ title: 'Recurring Order Cancelled' });
+    },
+    onError: (error: Error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+      }
+    },
+  });
+}
+
+export function useToggleRecurringOrder() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async ({ orderId, status }: { orderId: string; status: 'ACTIVE' | 'PAUSED' }) => {
+      const response = await fetch(`/api/orders/recurring/${orderId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ status }),
+      });
+      
+      if (!response.ok) throw new Error('Failed to update recurring order');
+      return response.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/orders/recurring'] });
+      toast({ title: variables.status === 'PAUSED' ? 'Order Paused' : 'Order Resumed' });
+    },
+    onError: (error: Error) => {
+      if (isUnauthorizedError(error)) {
+        redirectToLogin(toast);
+      }
+    },
+  });
+}

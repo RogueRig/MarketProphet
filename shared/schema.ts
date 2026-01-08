@@ -133,6 +133,20 @@ export const bracketOrders = pgTable("bracket_orders", {
   timestamp: timestamp("timestamp").notNull().defaultNow(),
 });
 
+export const recurringOrders = pgTable("recurring_orders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  marketId: text("market_id").notNull(),
+  marketTitle: text("market_title").notNull(),
+  outcome: text("outcome").notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(), // dollar amount per execution
+  frequency: text("frequency").notNull(), // 'DAILY', 'WEEKLY', 'MONTHLY'
+  nextExecution: timestamp("next_execution").notNull(),
+  status: text("status").notNull().default('ACTIVE'), // 'ACTIVE', 'PAUSED', 'CANCELLED'
+  totalExecuted: integer("total_executed").notNull().default(0),
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+});
+
 // Insert schemas
 export const insertPositionSchema = createInsertSchema(positions).omit({ id: true });
 export const insertTradeSchema = createInsertSchema(trades).omit({ id: true, timestamp: true });
@@ -145,6 +159,7 @@ export const insertTradeNoteSchema = createInsertSchema(tradeNotes).omit({ id: t
 export const insertWatchlistSchema = createInsertSchema(watchlist).omit({ id: true, timestamp: true });
 export const insertTrailingStopLossSchema = createInsertSchema(trailingStopLoss).omit({ id: true, status: true, timestamp: true });
 export const insertBracketOrderSchema = createInsertSchema(bracketOrders).omit({ id: true, status: true, timestamp: true });
+export const insertRecurringOrderSchema = createInsertSchema(recurringOrders).omit({ id: true, status: true, totalExecuted: true, timestamp: true });
 
 // Types
 export type Position = typeof positions.$inferSelect;
@@ -158,3 +173,4 @@ export type TradeNote = typeof tradeNotes.$inferSelect;
 export type WatchlistItem = typeof watchlist.$inferSelect;
 export type TrailingStopLoss = typeof trailingStopLoss.$inferSelect;
 export type BracketOrder = typeof bracketOrders.$inferSelect;
+export type RecurringOrder = typeof recurringOrders.$inferSelect;
