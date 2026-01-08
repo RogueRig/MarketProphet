@@ -800,20 +800,13 @@ export async function registerRoutes(
     }
   });
 
-  // Remove from watchlist
+  // Remove from watchlist (uses userId+marketId to avoid race conditions)
   app.delete("/api/watchlist/:marketId", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const { marketId } = req.params;
 
-      const watchlistItems = await storage.getUserWatchlist(userId);
-      const item = watchlistItems.find(w => w.marketId === marketId);
-      
-      if (!item) {
-        return res.status(404).json({ message: "Market not in watchlist" });
-      }
-
-      await storage.removeFromWatchlist(item.id);
+      await storage.removeFromWatchlistByMarket(userId, marketId);
       res.json({ success: true });
     } catch (error) {
       console.error("Error removing from watchlist:", error);
@@ -841,20 +834,34 @@ export async function registerRoutes(
       const userId = req.user.claims.sub;
       const { marketId, marketTitle, outcome, shares, trailPercent, currentPrice } = req.body;
 
+      // Input validation
+      const sharesNum = parseFloat(shares);
+      const trailPctNum = parseFloat(trailPercent);
+      const priceNum = parseFloat(currentPrice);
+
+      if (isNaN(sharesNum) || sharesNum <= 0) {
+        return res.status(400).json({ message: "Invalid shares amount" });
+      }
+      if (isNaN(trailPctNum) || trailPctNum <= 0 || trailPctNum >= 100) {
+        return res.status(400).json({ message: "Trail percent must be between 0 and 100" });
+      }
+      if (isNaN(priceNum) || priceNum <= 0 || priceNum > 1) {
+        return res.status(400).json({ message: "Invalid current price" });
+      }
+
       // Check user has sufficient shares
       const position = await storage.getPosition(userId, marketId, outcome);
-      if (!position || parseFloat(position.shares) < parseFloat(shares)) {
+      if (!position || parseFloat(position.shares) < sharesNum) {
         return res.status(400).json({ message: "Insufficient shares for trailing stop-loss" });
       }
 
-      // Calculate initial trigger price
-      const price = parseFloat(currentPrice);
-      const trailPct = parseFloat(trailPercent) / 100;
-      const triggerPrice = price * (1 - trailPct);
+      // Calculate initial trigger price (price * (1 - trailPercent/100))
+      const triggerPrice = priceNum * (1 - trailPctNum / 100);
 
       const order = await storage.createTrailingStopLoss(
-        userId, marketId, marketTitle, outcome, shares, 
-        trailPercent, currentPrice, triggerPrice.toFixed(4)
+        userId, marketId, marketTitle, outcome, 
+        sharesNum.toString(), trailPctNum.toString(), 
+        priceNum.toFixed(4), triggerPrice.toFixed(4)
       );
       res.json(order);
     } catch (error) {
@@ -904,19 +911,35 @@ export async function registerRoutes(
       const userId = req.user.claims.sub;
       const { marketId, marketTitle, outcome, shares, takeProfitPrice, stopLossPrice } = req.body;
 
+      // Input validation
+      const sharesNum = parseFloat(shares);
+      const tpPrice = parseFloat(takeProfitPrice);
+      const slPrice = parseFloat(stopLossPrice);
+
+      if (isNaN(sharesNum) || sharesNum <= 0) {
+        return res.status(400).json({ message: "Invalid shares amount" });
+      }
+      if (isNaN(tpPrice) || tpPrice <= 0 || tpPrice > 1) {
+        return res.status(400).json({ message: "Invalid take-profit price" });
+      }
+      if (isNaN(slPrice) || slPrice <= 0 || slPrice > 1) {
+        return res.status(400).json({ message: "Invalid stop-loss price" });
+      }
+
       // Check user has sufficient shares
       const position = await storage.getPosition(userId, marketId, outcome);
-      if (!position || parseFloat(position.shares) < parseFloat(shares)) {
+      if (!position || parseFloat(position.shares) < sharesNum) {
         return res.status(400).json({ message: "Insufficient shares for bracket order" });
       }
 
       // Validate take-profit is above stop-loss
-      if (parseFloat(takeProfitPrice) <= parseFloat(stopLossPrice)) {
+      if (tpPrice <= slPrice) {
         return res.status(400).json({ message: "Take-profit price must be higher than stop-loss price" });
       }
 
       const order = await storage.createBracketOrder(
-        userId, marketId, marketTitle, outcome, shares, takeProfitPrice, stopLossPrice
+        userId, marketId, marketTitle, outcome, 
+        sharesNum.toString(), tpPrice.toFixed(4), slPrice.toFixed(4)
       );
       res.json(order);
     } catch (error) {

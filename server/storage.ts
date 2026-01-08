@@ -372,6 +372,10 @@ export class DbStorage implements IStorage {
     await db.delete(watchlist).where(eq(watchlist.id, watchlistId));
   }
 
+  async removeFromWatchlistByMarket(userId: string, marketId: string): Promise<void> {
+    await db.delete(watchlist).where(and(eq(watchlist.userId, userId), eq(watchlist.marketId, marketId)));
+  }
+
   async isInWatchlist(userId: string, marketId: string): Promise<boolean> {
     const [item] = await db.select().from(watchlist)
       .where(and(eq(watchlist.userId, userId), eq(watchlist.marketId, marketId)));
