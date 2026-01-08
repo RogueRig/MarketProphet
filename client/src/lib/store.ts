@@ -564,6 +564,147 @@ export function useClearNotifications() {
   });
 }
 
+// Analytics types
+export interface PnLHistoryPoint {
+  date: string;
+  pnl: number;
+}
+
+export interface AnalyticsStats {
+  totalTrades: number;
+  buyTrades: number;
+  sellTrades: number;
+  winningTrades: number;
+  losingTrades: number;
+  winRate: number;
+  realizedPnL: number;
+  totalPnL: number;
+  totalValue: number;
+  currentBalance: number;
+}
+
+export interface TopTrade {
+  marketTitle: string;
+  outcome: string;
+  pnl: number;
+  date: string;
+}
+
+export interface TopTrades {
+  topWins: TopTrade[];
+  topLosses: TopTrade[];
+}
+
+export interface MarketExposure {
+  marketId: string;
+  value: number;
+  percentage: number;
+}
+
+export interface ExposureData {
+  exposure: MarketExposure[];
+  cashPercentage: number;
+  totalValue: number;
+}
+
+// Analytics API functions
+async function fetchPnLHistory(): Promise<PnLHistoryPoint[]> {
+  const response = await fetch('/api/analytics/pnl-history', { credentials: 'include' });
+  if (!response.ok) throw new Error(`${response.status}: ${response.statusText}`);
+  return response.json();
+}
+
+async function fetchAnalyticsStats(): Promise<AnalyticsStats> {
+  const response = await fetch('/api/analytics/stats', { credentials: 'include' });
+  if (!response.ok) throw new Error(`${response.status}: ${response.statusText}`);
+  return response.json();
+}
+
+async function fetchTopTrades(): Promise<TopTrades> {
+  const response = await fetch('/api/analytics/top-trades', { credentials: 'include' });
+  if (!response.ok) throw new Error(`${response.status}: ${response.statusText}`);
+  return response.json();
+}
+
+async function fetchExposure(): Promise<ExposureData> {
+  const response = await fetch('/api/analytics/exposure', { credentials: 'include' });
+  if (!response.ok) throw new Error(`${response.status}: ${response.statusText}`);
+  return response.json();
+}
+
+// Analytics hooks
+export function usePnLHistory() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  
+  return useQuery<PnLHistoryPoint[]>({
+    queryKey: ['/api/analytics/pnl-history'],
+    queryFn: fetchPnLHistory,
+    enabled: !!user,
+    retry: (failureCount, error) => {
+      if (isUnauthorizedError(error as Error)) {
+        redirectToLogin(toast);
+        return false;
+      }
+      return failureCount < 3;
+    },
+  });
+}
+
+export function useAnalyticsStats() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  
+  return useQuery<AnalyticsStats>({
+    queryKey: ['/api/analytics/stats'],
+    queryFn: fetchAnalyticsStats,
+    enabled: !!user,
+    retry: (failureCount, error) => {
+      if (isUnauthorizedError(error as Error)) {
+        redirectToLogin(toast);
+        return false;
+      }
+      return failureCount < 3;
+    },
+  });
+}
+
+export function useTopTrades() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  
+  return useQuery<TopTrades>({
+    queryKey: ['/api/analytics/top-trades'],
+    queryFn: fetchTopTrades,
+    enabled: !!user,
+    retry: (failureCount, error) => {
+      if (isUnauthorizedError(error as Error)) {
+        redirectToLogin(toast);
+        return false;
+      }
+      return failureCount < 3;
+    },
+  });
+}
+
+export function useExposure() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  
+  return useQuery<ExposureData>({
+    queryKey: ['/api/analytics/exposure'],
+    queryFn: fetchExposure,
+    enabled: !!user,
+    retry: (failureCount, error) => {
+      if (isUnauthorizedError(error as Error)) {
+        redirectToLogin(toast);
+        return false;
+      }
+      return failureCount < 3;
+    },
+  });
+}
+
 // Helper functions for client-side calculations
 export function getMarketExposure(
   marketId: string,

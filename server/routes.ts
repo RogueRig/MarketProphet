@@ -349,5 +349,231 @@ export async function registerRoutes(
     }
   });
 
+  // Analytics: Get P&L history over time
+  app.get("/api/analytics/pnl-history", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const trades = await storage.getUserTrades(userId);
+      
+      // Group trades by date and calculate cumulative P&L
+      const pnlByDate = new Map<string, number>();
+      let cumulativePnL = 0;
+      
+      // Sort trades by timestamp (oldest first)
+      const sortedTrades = [...trades].sort((a, b) => 
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      );
+      
+      for (const trade of sortedTrades) {
+        const date = new Date(trade.timestamp).toISOString().split('T')[0];
+        const shares = parseFloat(trade.shares);
+        const price = parseFloat(trade.price);
+        
+        // BUY = money out (negative), SELL = money in (positive)
+        const pnlChange = trade.type === 'BUY' ? -(shares * price) : (shares * price);
+        cumulativePnL += pnlChange;
+        pnlByDate.set(date, cumulativePnL);
+      }
+      
+      const history = Array.from(pnlByDate.entries()).map(([date, pnl]) => ({
+        date,
+        pnl: Math.round(pnl * 100) / 100
+      }));
+      
+      res.json(history);
+    } catch (error) {
+      console.error("Error fetching P&L history:", error);
+      res.status(500).json({ message: "Failed to fetch P&L history" });
+    }
+  });
+
+  // Analytics: Get trading statistics
+  app.get("/api/analytics/stats", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const trades = await storage.getUserTrades(userId);
+      const user = await storage.getUser(userId);
+      
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      // Calculate stats
+      const totalTrades = trades.length;
+      const buyTrades = trades.filter(t => t.type === 'BUY').length;
+      const sellTrades = trades.filter(t => t.type === 'SELL').length;
+      
+      // Group trades by market to find wins/losses
+      const marketTrades = new Map<string, { buys: number; sells: number; buyValue: number; sellValue: number }>();
+      
+      for (const trade of trades) {
+        const key = `${trade.marketId}-${trade.outcome}`;
+        const existing = marketTrades.get(key) || { buys: 0, sells: 0, buyValue: 0, sellValue: 0 };
+        const value = parseFloat(trade.shares) * parseFloat(trade.price);
+        
+        if (trade.type === 'BUY') {
+          existing.buys += parseFloat(trade.shares);
+          existing.buyValue += value;
+        } else {
+          existing.sells += parseFloat(trade.shares);
+          existing.sellValue += value;
+        }
+        
+        marketTrades.set(key, existing);
+      }
+      
+      // Calculate realized P&L for closed positions
+      let realizedPnL = 0;
+      let winningTrades = 0;
+      let losingTrades = 0;
+      
+      for (const [, data] of marketTrades) {
+        const soldShares = Math.min(data.buys, data.sells);
+        if (soldShares > 0) {
+          const avgBuyPrice = data.buyValue / data.buys;
+          const avgSellPrice = data.sellValue / data.sells;
+          const pnl = soldShares * (avgSellPrice - avgBuyPrice);
+          realizedPnL += pnl;
+          
+          if (pnl > 0) winningTrades++;
+          else if (pnl < 0) losingTrades++;
+        }
+      }
+      
+      const winRate = winningTrades + losingTrades > 0 
+        ? Math.round((winningTrades / (winningTrades + losingTrades)) * 100)
+        : 0;
+      
+      // Calculate total portfolio value
+      const currentBalance = parseFloat(user.balance);
+      const positions = await storage.getUserPositions(userId);
+      const positionValue = positions.reduce((acc, p) => 
+        acc + (parseFloat(p.shares) * parseFloat(p.avgPrice)), 0);
+      const totalValue = currentBalance + positionValue;
+      const totalPnL = totalValue - 10000; // Starting balance is 10000
+      
+      res.json({
+        totalTrades,
+        buyTrades,
+        sellTrades,
+        winningTrades,
+        losingTrades,
+        winRate,
+        realizedPnL: Math.round(realizedPnL * 100) / 100,
+        totalPnL: Math.round(totalPnL * 100) / 100,
+        totalValue: Math.round(totalValue * 100) / 100,
+        currentBalance: Math.round(currentBalance * 100) / 100
+      });
+    } catch (error) {
+      console.error("Error fetching analytics stats:", error);
+      res.status(500).json({ message: "Failed to fetch stats" });
+    }
+  });
+
+  // Analytics: Get top trades (biggest wins and losses)
+  app.get("/api/analytics/top-trades", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const trades = await storage.getUserTrades(userId);
+      
+      // Find paired buy/sell trades to calculate P&L per trade
+      const completedTrades: { marketTitle: string; outcome: string; pnl: number; date: string }[] = [];
+      const openPositions = new Map<string, { shares: number; avgPrice: number; marketTitle: string; outcome: string }>();
+      
+      // Sort by timestamp (oldest first)
+      const sortedTrades = [...trades].sort((a, b) => 
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      );
+      
+      for (const trade of sortedTrades) {
+        const key = `${trade.marketId}-${trade.outcome}`;
+        const shares = parseFloat(trade.shares);
+        const price = parseFloat(trade.price);
+        
+        if (trade.type === 'BUY') {
+          const existing = openPositions.get(key);
+          if (existing) {
+            const totalShares = existing.shares + shares;
+            const totalCost = (existing.shares * existing.avgPrice) + (shares * price);
+            existing.avgPrice = totalCost / totalShares;
+            existing.shares = totalShares;
+          } else {
+            openPositions.set(key, { shares, avgPrice: price, marketTitle: trade.marketTitle, outcome: trade.outcome });
+          }
+        } else {
+          // SELL - calculate P&L
+          const existing = openPositions.get(key);
+          if (existing && existing.shares >= shares) {
+            const pnl = shares * (price - existing.avgPrice);
+            completedTrades.push({
+              marketTitle: trade.marketTitle,
+              outcome: trade.outcome,
+              pnl: Math.round(pnl * 100) / 100,
+              date: new Date(trade.timestamp).toLocaleDateString()
+            });
+            
+            existing.shares -= shares;
+            if (existing.shares <= 0) {
+              openPositions.delete(key);
+            }
+          }
+        }
+      }
+      
+      // Sort by P&L
+      const sorted = completedTrades.sort((a, b) => Math.abs(b.pnl) - Math.abs(a.pnl));
+      const topWins = sorted.filter(t => t.pnl > 0).slice(0, 5);
+      const topLosses = sorted.filter(t => t.pnl < 0).slice(0, 5);
+      
+      res.json({ topWins, topLosses });
+    } catch (error) {
+      console.error("Error fetching top trades:", error);
+      res.status(500).json({ message: "Failed to fetch top trades" });
+    }
+  });
+
+  // Analytics: Get market exposure breakdown
+  app.get("/api/analytics/exposure", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const positions = await storage.getUserPositions(userId);
+      const user = await storage.getUser(userId);
+      
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      // Calculate exposure per market
+      const exposureByMarket = new Map<string, number>();
+      
+      for (const pos of positions) {
+        const value = parseFloat(pos.shares) * parseFloat(pos.avgPrice);
+        const existing = exposureByMarket.get(pos.marketId) || 0;
+        exposureByMarket.set(pos.marketId, existing + value);
+      }
+      
+      const totalValue = parseFloat(user.balance) + 
+        positions.reduce((acc, p) => acc + (parseFloat(p.shares) * parseFloat(p.avgPrice)), 0);
+      
+      const exposure = Array.from(exposureByMarket.entries()).map(([marketId, value]) => ({
+        marketId,
+        value: Math.round(value * 100) / 100,
+        percentage: Math.round((value / totalValue) * 100)
+      }));
+      
+      // Sort by value descending
+      exposure.sort((a, b) => b.value - a.value);
+      
+      res.json({
+        exposure,
+        cashPercentage: Math.round((parseFloat(user.balance) / totalValue) * 100),
+        totalValue: Math.round(totalValue * 100) / 100
+      });
+    } catch (error) {
+      console.error("Error fetching exposure:", error);
+      res.status(500).json({ message: "Failed to fetch exposure" });
+    }
+  });
+
   return httpServer;
 }

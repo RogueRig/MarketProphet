@@ -9,6 +9,7 @@ import AuthPage from "@/pages/auth";
 import Dashboard from "@/pages/dashboard";
 import MarketPage from "@/pages/market";
 import Portfolio from "@/pages/portfolio";
+import Analytics from "@/pages/analytics";
 import NotFound from "@/pages/not-found";
 
 // Protected Route Wrapper
@@ -53,6 +54,7 @@ function Router() {
       <Route path="/" component={() => <ProtectedRoute component={Dashboard} />} />
       <Route path="/market/:id" component={() => <ProtectedRoute component={MarketPage} />} />
       <Route path="/portfolio" component={() => <ProtectedRoute component={Portfolio} />} />
+      <Route path="/analytics" component={() => <ProtectedRoute component={Analytics} />} />
       
       <Route component={NotFound} />
     </Switch>
