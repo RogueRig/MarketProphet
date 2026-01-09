@@ -1,5 +1,7 @@
 {
   "functions": {
-    "api/index.ts": {}
+    "api/index.ts": {
+      "runtime": "nodejs18.x"
+    }
   }
 }
